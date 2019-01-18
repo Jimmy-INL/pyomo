@@ -13,7 +13,7 @@
 import pyutilib.th as unittest
 from pyomo.core.expr import inequality
 import pyomo.core.expr.current as expr
-from pyomo.environ import ConcreteModel, Var, value, Param
+from pyomo.environ import ConcreteModel, Var, value, Param, exp
 from pyomo.core.base.units import PyomoUnitsContainer, get_units, InconsistentUnitsError, \
     UnitsError, check_units_consistency, _get_units_tuple
 
@@ -131,8 +131,7 @@ class TestPyomoUnit(unittest.TestCase):
         if str_check is not None:
             self.assertEqual(str(get_units(x)), str_check)
         else:
-            # just test that it does not fail
-            self.assertIsNotNone(get_units(x))
+            self.assertIsNone(get_units(x))
 
     def _get_check_units_fail(self, x, expected_type=None, expected_error=InconsistentUnitsError):
         if expected_type is not None:
@@ -164,6 +163,7 @@ class TestPyomoUnit(unittest.TestCase):
         model.x = Var()
         model.y = Var()
         model.z = Var()
+        model.p = Param(initialize=42.0, mutable=True)
 
         # test equality
         self._get_check_units_ok(3.0*kg == 1.0*kg, 'kg', expr.EqualityExpression)
@@ -219,6 +219,12 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_ok(abs(kg*model.x), 'kg', expr.AbsExpression)
         self._get_check_units_ok(abs(kg), 'kg', expr.NPV_AbsExpression)
         # don't think there are combinations that fan "fail" for abs
+
+        # test UnaryFunctionExpression, NPV_UnaryFunctionExpression
+        self._get_check_units_ok(exp(3.0*model.x), None, expr.UnaryFunctionExpression)
+        self._get_check_units_fail(exp(3.0*kg*model.x), expr.UnaryFunctionExpression, UnitsError)
+        self._get_check_units_ok(exp(3.0*model.p), None, expr.NPV_UnaryFunctionExpression)
+        self._get_check_units_fail(exp(3.0*kg), expr.NPV_UnaryFunctionExpression, UnitsError)
 
         # ToDo: complete the remaining expressions
 

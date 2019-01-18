@@ -7,7 +7,7 @@
 #  This software is distributed under the BSD License.
 #  _________________________________________________________________________
 
-"""Pyomo Units Module ** Not Yet Complete
+"""Pyomo Units Module ** WORK IN PROGRESS **
 
 This module provides support for including units within Pyomo expressions, and provides
 methods for checking the consistency of units within those expresions.
@@ -58,11 +58,13 @@ Notes:
 #     Python package and supports all the units that are supported by pint.
 #
 # Todo:
+#     * fix documentation to include proper docstring references to classes/methods, etc.
 #     * create a new pint unit definition file (and load from that file)
 #         since the precision in pint is insufficient for 1e-8 constraint tolerances
-#     * clean up docstrings (e.g., add Returns to those that need it)
 #     * test pickling and un-pickling
-#     * Add a convert_value for numerical values only (e.g., for use in initialization and reporting)
+#     * implement convert functionality
+#     * Add units capabilities to Var and Param
+#     * Investigate issues surrounding absolute and relative temperatures (delta units)
 #
 # """
 
@@ -73,7 +75,7 @@ import pint
 
 class UnitsError(Exception):
     """
-    An exception base class for all errors/warnings associated with units
+    An exception class for all general errors/warnings associated with units
     """
     def __init__(self, msg):
         self.msg = msg
@@ -93,13 +95,13 @@ class InconsistentUnitsError(UnitsError):
         super(InconsistentUnitsError, self).__init__(msg)
 
 
-class PyomoUnit(NumericValue):
+class _PyomoUnit(NumericValue):
     """An object that represents a single unit in Pyomo (e.g., kg, meter)
 
-    Users do not need to create instances of Unit directly.
-    Instead, access units as attributes on an instance of a UnitsManager class.
+    Users should not create instances of _PyomoUnit directly, but rather access
+    units as attributes on an instance of a PyomoUnitsContainer. See module documentation
+    for more information.
     """
-
     def __init__(self, pint_unit, pint_registry):
         self._pint_unit = pint_unit
         self._pint_registry = pint_registry
@@ -126,7 +128,7 @@ class PyomoUnit(NumericValue):
         Overloaded from: NumericValue
 
         This method indicates if the NumericValue is a constant and can be replaced with a plain
-        old number. Although units are constant, we do NOT want this replaced - therefore
+        old number. Although units are, in fact, constant, we do NOT want this replaced - therefore
         we return False here to prevent replacement.
 
         Returns
@@ -137,18 +139,17 @@ class PyomoUnit(NumericValue):
 
     def is_fixed(self):
         """
-        Indicates if the NumericValue is fixed with respect to the "solver".
+        Indicates if the NumericValue is fixed with respect to a "solver".
         Overloaded from: NumericValue
 
         Indicates if the Unit should be treated as fixed. Since the Unit is always treated as
-        a constant value of 1.0, it is always fixed.
+        a constant value of 1.0, it is fixed.
 
         Returns
         =======
             bool : True (This method always returns True)
 
         """
-        # These are fixed values in relation to the solver - they will be set to 1.0 w.r.t. the solver
         return True
 
     def is_parameter_type(self):
@@ -188,6 +189,7 @@ class PyomoUnit(NumericValue):
 
     # polynomial_degree using implementation in NumericValue
     def _compute_polynomial_degree(self, result):
+        # ToDo: check why NumericalValue returns None instead of 0
         return 0
 
     def __float__(self):
@@ -220,173 +222,27 @@ class PyomoUnit(NumericValue):
             "functions."
             % self.name)
 
-    # def __lt__(self, other):
-    #     """
-    #     Less than operator
-    #
-    #     This method is called when Python processes statements of the form::
-    #
-    #         self < other
-    #         other > self
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "an inequality. A unit should be part of a larger expression."
-    #         % (self.name))
-    #
-    # def __gt__(self, other):
-    #     """
-    #     Greater than operator
-    #
-    #     This method is called when Python processes statements of the form::
-    #
-    #         self > other
-    #         other < self
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "an inequality. A unit should be part of a larger expression."
-    #         % (self.name))
-    #
-    # def __le__(self, other):
-    #     """
-    #     Less than or equal operator
-    #
-    #     This method is called when Python processes statements of the form::
-    #
-    #         self <= other
-    #         other >= self
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "an inequality. A unit should be part of a larger expression."
-    #         % (self.name))
-    #
-    # def __ge__(self, other):
-    #     """
-    #     Greater than or equal operator
-    #
-    #     This method is called when Python processes statements of the form::
-    #
-    #         self >= other
-    #         other <= self
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "an inequality. A unit should be part of a larger expression."
-    #         % (self.name))
-    #
-    # def __eq__(self, other):
-    #     """
-    #     Equal to operator
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self == other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "a relational operation (e.g., equality). A unit should be "
-    #         "part of a larger expression."
-    #         % (self.name))
-    #
-    # def __add__(self, other):
-    #     """
-    #     Binary addition
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self + other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "an addition (+). The unit should be part of a larger expression."
-    #         % (self.name))
-    #
-    # def __sub__(self, other):
-    #     """
-    #     Binary subtraction
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self - other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "a subtraction (-). The unit should be part of a larger expression."
-    #         % (self.name))
-
+    # __lt__ uses NumericValue base class implementation
+    # __gt__ uses NumericValue base class implementation
+    # __le__ uses NumericValue base class implementation
+    # __ge__ uses NumericValue base class implementation
+    # __eq__ uses NumericValue base class implementation
+    # __add__ uses NumericValue base class implementation
+    # __sub__ uses NumericValue base class implementation
     # __mul__ uses NumericValue base class implementation
     # __div__ uses NumericValue base class implementation
     # __truediv__ uses NumericValue base class implementation
     # __pow__ uses NumericValue vase class implementation
-
-    # def __radd__(self, other):
-    #     """
-    #     Binary addition
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         other + self
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "an addition (+). The unit should be part of a larger expression."
-    #         % (self.name))
-    #
-    # def __rsub__(self, other):
-    #     """
-    #     Binary subtraction
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         other - self
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself on one side of "
-    #         "a subtraction (-). The unit should be part of a larger expression."
-    #         % (self.name))
-
+    # __radd__ uses NumericValue base class implementation
+    # __rsub__ uses NumericValue base class implementation
     # __rmul__ uses NumericValue base class implementation
     # __rdiv__ uses NumericValue base class implementation
     # __rtruediv__ uses NumericValue base class implementation
-
-    # def __rpow__(self, other):
-    #     """
-    #     Binary power
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         other ** self
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself as an exponent. "
-    #         "The unit should be part of a larger expression."
-    #         % (self.name))
+    # __rpow__ uses NumericValue base class implementation
 
     def __iadd__(self, other):
         """
-        Binary addition
+        Incremental addition
 
         This method is called when Python processes the statement::
 
@@ -400,7 +256,7 @@ class PyomoUnit(NumericValue):
 
     def __isub__(self, other):
         """
-        Binary subtraction
+        Incremental subtraction
 
         This method is called when Python processes the statement::
 
@@ -414,7 +270,7 @@ class PyomoUnit(NumericValue):
 
     def __imul__(self, other):
         """
-        Binary multiplication
+        Incremental multiplication
 
         This method is called when Python processes the statement::
 
@@ -428,7 +284,7 @@ class PyomoUnit(NumericValue):
 
     def __idiv__(self, other):
         """
-        Binary division
+        Incremental division
 
         This method is called when Python processes the statement::
 
@@ -442,7 +298,7 @@ class PyomoUnit(NumericValue):
 
     def __itruediv__(self, other):
         """
-        Binary division (when __future__.division is in effect)
+        Incremental division (when __future__.division is in effect)
 
         This method is called when Python processes the statement::
 
@@ -456,7 +312,7 @@ class PyomoUnit(NumericValue):
 
     def __ipow__(self, other):
         """
-        Binary power
+        Incremental power
 
         This method is called when Python processes the statement::
 
@@ -468,50 +324,15 @@ class PyomoUnit(NumericValue):
             "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place exponentiation (**=)."
             % (self.name))
 
-    #
-    # def __neg__(self):
-    #     """
-    #     Negation
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         - self
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot be used as the target for a negation operator. This "
-    #         "can often occur with an expression such as -um.kg*3.0 that should instead be "
-    #         " written as -3.0*um.kg or -(um.kg*3.0)."
-    #         % (self.name))
-    #
-
+    # __neg__ uses NumericValue base class implementation
     # __pos__ uses NumericValue base class implementation
-
-    # def __abs__(self):
-    #     """ Absolute value
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         abs(self)
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' cannot exist by itself as an argument to absolute value. "
-    #         "The unit should be part of a larger expression."
-    #         % (self.name))
-
+    # __add__ uses NumericValue base class implementation
 
     def __str__(self):
         """ Returns a string representing the unit """
-        # ToDo: implement the _units_equiv method
-        #if _units_equiv(self._pint_unit, self._owner_units_manager._pint_ureg.dimensionless):
-        #    return 'dimensionless'
 
         # I am returning the short form here, could
         # also return str(self._pint_unit) for the long form
-        # ToDo: fix this to return the short form of the pint unit
         return '{:~}'.format(self._pint_unit)
 
     def to_string(self, verbose=None, labeler=None, smap=None,
@@ -550,6 +371,7 @@ class PyomoUnit(NumericValue):
         """
         if ostream is None:         #pragma:nocover
             ostream = sys.stdout
+        # ToDo: should this do the long form of the unit?
         ostream.write(str(self))
 
 
@@ -595,44 +417,17 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         return False
 
-    #
-    # @staticmethod
-    # def return_pint_unit_if_equivalent(list_of_units, pint_registry):
-    #     """
-    #     This method checks that the units in the list are all equivalent and then
-    #     returns the first one in the list
-    #
-    #     Parameters
-    #     ----------
-    #     list_of_units : list
-    #        a list of pint units (or pint unit expressions)
-    #     pint_registry : pint.UnitRegistry
-    #        the registry that owns the units - this is used to return dimensionless if the list is empty
-    #
-    #     Returns
-    #     -------
-    #         pint.Unit : returns the first pint unit or unit expression in the list (if they are equivalent)
-    #     """
-    #     if len(list_of_units) == 0:
-    #         return pint_registry.dimensionless
-    #     elif len(list_of_units) == 1:
-    #         return list_of_units[0]
-    #
-    #     ret_unit = list_of_units[0]
-    #     for i in range(1,len(list_of_units)):
-    #         if not UnitExtractionVisitor.pint_units_equivalent(ret_unit, list_of_units[i]):
-    #             raise InconsistentUnits(ret_unit, list_of_units[i], 'Inconsistent units found in expression'
-    #                                     ' (e.g., 3.0*kg + 1.2*m)')
-    #
-    #     return ret_unit
-
     def _get_unit_for_equivalent_children(self, node, list_of_unit_tuples):
         """
-        Return the unit expressions corresponding to a summation or comparison
-        of the child data in list_of_unit_tuples
+        Return the unit expression corresponding to a operation where all
+        children should have the same units (e.g., equality, sum). This method
+        also checks to make sure the units are valid.
 
         Parameters
         ----------
+        node : Pyomo expression node
+            The parent node of the children
+
         list_of_unit_tuples : list
            This is a list of tuples (one for each of the children) where each tuple
            is a PyomoUnit, pint unit pair
@@ -641,6 +436,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         -------
             tuple : (PyomoUnit, pint unit)
         """
+        # ToDo: This may be expensive for long summations and, in the case of reporting, we may want to skip the checks
         assert len(list_of_unit_tuples) > 0
 
         # verify that the pint units are equivalent from each
@@ -662,6 +458,9 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         Parameters
         ----------
+        node : Pyomo expression node
+            The parent node of the children
+
         list_of_unit_tuples : list
            This is a list of tuples (one for each of the children) where each tuple
            is a PyomoUnit, pint unit pair
@@ -703,6 +502,9 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         Parameters
         ----------
+        node : Pyomo expression node
+            The parent node of the children
+
         list_of_unit_tuples : list
            This is a list of tuples (one for each of the children) where each tuple
            is a PyomoUnit, pint unit pair
@@ -724,6 +526,9 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         Parameters
         ----------
+        node : Pyomo expression node
+            The parent node of the children
+
         list_of_unit_tuples : list
            This is a list of tuples (one for each of the children) where each tuple
            is a PyomoUnit, pint unit pair
@@ -772,10 +577,14 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
     def _get_unit_for_single_child(self, node, list_of_unit_tuples):
         """
         Return the unit expression corresponding to the (single)
-        child in the list_of_unit_tuples
+        child in the list_of_unit_tuples. This is intended for unary nodes
+        in the expression tree.
 
         Parameters
         ----------
+        node : Pyomo expression node
+            The parent node of the children
+
         list_of_unit_tuples : list
            This is a list of tuples (one for each of the children) where each tuple
            is a PyomoUnit, pint unit pair
@@ -789,6 +598,35 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         pyomo_unit = list_of_unit_tuples[0][0]
         pint_unit = list_of_unit_tuples[0][1]
         return (pyomo_unit, pint_unit)
+
+    def _get_check_unitless_children(self, node, list_of_unit_tuples):
+        """
+        Check to make sure that any child arguments are unitless (for functions like exp()) and
+        return None (dimensionless) if successful. Although odd that this does not just return
+        a boolean, it is done this way to match the signature of the other methods used to get
+        units for expressions.
+
+        Parameters
+        ----------
+        node : Pyomo expression node
+            The parent node of the children
+
+        list_of_unit_tuples : list
+           This is a list of tuples (one for each of the children) where each tuple
+           is a PyomoUnit, pint unit pair
+
+        Returns
+        -------
+            bool : True if all children are dimensionless, False otherwise
+        """
+        for (pyomo_unit, pint_unit) in list_of_unit_tuples:
+            if pyomo_unit is not None:
+                assert pint_unit is not None
+                raise UnitsError('Expected dimensionless units in {}, but found {}.'.format(str(node), str(pyomo_unit)))
+            assert pint_unit is None
+
+        # if we make it here, then all are equal to None
+        return (None, None)
 
     node_type_method_map = {
         expr.EqualityExpression: _get_unit_for_equivalent_children,
@@ -807,20 +645,20 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         expr.NPV_NegationExpression: _get_unit_for_single_child,
         expr.AbsExpression: _get_unit_for_single_child,
         expr.NPV_AbsExpression: _get_unit_for_single_child,
+        expr.UnaryFunctionExpression: _get_check_unitless_children,
+        expr.NPV_UnaryFunctionExpression: _get_check_unitless_children,
+        expr.Expr_ifExpression: _get_unit_for_equivalent_children,
         # ToDo: complete the rest of these
         expr.ExternalFunctionExpression: None,
-        expr.GetItemExpression: None,
-        expr.Expr_ifExpression: None,
-        expr.LinearExpression: None,
-        expr.UnaryFunctionExpression: None,
         expr.NPV_ExternalFunctionExpression: None,
-        expr.NPV_UnaryFunctionExpression: None,
+        expr.GetItemExpression: None,
+        expr.LinearExpression: None,
     }
 
 
     def exitNode(self, node, data):
         if expr.is_leaf(node):
-            if isinstance(node, PyomoUnit):
+            if isinstance(node, _PyomoUnit):
                 return (node, node._get_pint_unit())
 
             # ToDo: Check for Var or Param and return their units...
@@ -971,7 +809,7 @@ class PyomoUnitsContainer(object):
         try:
             pint_unit = getattr(self._pint_ureg, item)
             if pint_unit is not None:
-                unit = PyomoUnit(pint_unit, self._pint_ureg)
+                unit = _PyomoUnit(pint_unit, self._pint_ureg)
                 setattr(self, item, unit)
                 return unit
         except pint.errors.UndefinedUnitError as exc:
