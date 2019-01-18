@@ -57,6 +57,7 @@ __all__ = (
 'NPV_SumExpression',
 'NPV_UnaryFunctionExpression',
 'NPV_AbsExpression',
+'is_leaf',
 'StreamBasedExpressionVisitor',
 'SimpleExpressionVisitor',
 'ExpressionValueVisitor',
@@ -225,6 +226,24 @@ class linear_expression(object):
 # Visitor Logic
 #
 #-------------------------------------------------------
+
+def is_leaf(expr):
+    """
+    Returns True if the object in expr is a leaf node
+
+    Parameters
+    ----------
+    expr : Pyomo expression
+        The expression to test
+
+    Returns
+    -------
+        bool : Returns True if the expr is a leaf node, False otherwise
+    """
+    if type(expr) in nonpyomo_leaf_types \
+        or not expr.is_expression_type():
+        return True
+    return False
 
 class StreamBasedExpressionVisitor(object):
     """This class implements a generic stream-based expression walker.
