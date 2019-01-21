@@ -28,8 +28,10 @@ Examples:
         >>>
 
 Notes:
-    The implementation is currently based on `pint <http://pint.readthedocs.io>`_
-    Python package and supports all the units that are supported by pint.
+    * The implementation is currently based on `pint <http://pint.readthedocs.io>`_
+        Python package and supports all the units that are supported by pint.
+    * Currently, we do NOT test units of unary functions that include native types since
+        these are removed by the expression system before getting to the units checking code
 
 """
 # """Pyomo Units Module
@@ -63,13 +65,16 @@ Notes:
 #         since the precision in pint is insufficient for 1e-8 constraint tolerances
 #     * test pickling and un-pickling
 #     * implement convert functionality
+#     * implement remove_unit(x, expected_unit) that returns a unitless version of the expression
 #     * Add units capabilities to Var and Param
 #     * Investigate issues surrounding absolute and relative temperatures (delta units)
 #
 # """
 
 from pyomo.core.expr.numvalue import NumericValue, nonpyomo_leaf_types, value
+from pyomo.core.base.template_expr import IndexTemplate
 from pyomo.core.expr import current as expr
+import math
 import pint
 
 
@@ -377,11 +382,12 @@ class _PyomoUnit(NumericValue):
 
 class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
-    def __init__(self):
+    def __init__(self, pyomo_units_container):
         """
         Class used to check and retrieve Pyomo and pint units from expressions
         """
         super(_UnitExtractionVisitor, self).__init__()
+        self._pyomo_units_container = pyomo_units_container
 
     @staticmethod
     def _pint_units_equivalent(lhs, rhs):
@@ -599,7 +605,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         pint_unit = list_of_unit_tuples[0][1]
         return (pyomo_unit, pint_unit)
 
-    def _get_check_unitless_children(self, node, list_of_unit_tuples):
+    def _get_unitless_with_unitless_children(self, node, list_of_unit_tuples):
         """
         Check to make sure that any child arguments are unitless (for functions like exp()) and
         return None (dimensionless) if successful. Although odd that this does not just return
@@ -617,7 +623,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         Returns
         -------
-            bool : True if all children are dimensionless, False otherwise
+            (None, None) : if successful, returns unitless for both pyomo_unit and pint_unit, and
+                raises UnitError otherwise
         """
         for (pyomo_unit, pint_unit) in list_of_unit_tuples:
             if pyomo_unit is not None:
@@ -627,6 +634,181 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         # if we make it here, then all are equal to None
         return (None, None)
+
+    def _get_unitless_no_children(self, node, list_of_unit_tuples):
+        """
+        Check to make sure the length of list_of_unit_tuples is zero, and return
+        (None, None). Used for leaf nodes that should not have any units.
+
+        Parameters
+        ----------
+        node : Pyomo expression node
+            The parent node of the children
+
+        list_of_unit_tuples : list
+           This is a list of tuples (one for each of the children) where each tuple
+           is a PyomoUnit, pint unit pair
+
+        Returns
+        -------
+            (None, None) : if successful, returns unitless for both pyomo_unit and pint_unit, and
+                raises UnitError otherwise
+        """
+        assert len(list_of_unit_tuples) == 0
+        assert is_leaf(node)
+        # # check that the leaf does not have any units
+        # # ToDo: This "might" be the planned mechanism for getting units from Pyomo component leaves
+        # if hasattr(node, 'get_units') and node.get_units() is not None:
+        #     raise UnitsError('Expected dimensionless units in {}, but found {}.'.format(str(node),
+        #                         str(node.get_units())))
+        return (None, None)
+
+    def _get_unit_for_unary_function(self, node, list_of_unit_tuples):
+        """
+        Get the units for a unary function. Checks that the list_of_unit_tuples is of length 1
+        and calls the appropriate method from the unary function method map.
+
+        Parameters
+        ----------
+        node : Pyomo expression node
+            The parent node of the children
+
+        list_of_unit_tuples : list
+           This is a list of tuples (one for each of the children) where each tuple
+           is a PyomoUnit, pint unit pair
+
+        Returns
+        -------
+            tuple : (PyomoUnit, pint unit)
+        """
+        assert len(list_of_unit_tuples) == 1
+        func_name = node.getname()
+        if func_name in self.unary_function_method_map:
+            node_func = self.unary_function_method_map[func_name]
+            if node_func is not None:
+                return node_func(self, node, list_of_unit_tuples)
+        raise TypeError('An unhandled unary function: {} was encountered while retrieving the'
+                        ' units of expression {}'.format(func_name, str(node)))
+
+    def _get_unit_for_expr_if(self, node, list_of_unit_tuples):
+        """
+        Return the unit expression corresponding to an Expr_if expression. The
+        _if relational expression should be consistent, and _then/_else should be
+        the same units. Also checks to make sure length of list_of_unit_tuples is 3
+
+        Parameters
+        ----------
+        node : Pyomo expression node
+            The parent node of the children
+
+        list_of_unit_tuples : list
+           This is a list of tuples (one for each of the children) where each tuple
+           is a PyomoUnit, pint unit pair
+
+        Returns
+        -------
+            tuple : (PyomoUnit, pint unit)
+        """
+        assert len(list_of_unit_tuples) == 3
+
+        # the _if should already be consistent (since the children were
+        # already checked)
+
+        # verify that they _then and _else are equivalent
+        then_pyomo_unit, then_pint_unit = list_of_unit_tuples[1]
+        else_pyomo_unit, else_pint_unit = list_of_unit_tuples[2]
+
+        if not _UnitExtractionVisitor._pint_units_equivalent(then_pint_unit, else_pint_unit):
+            raise InconsistentUnitsError(then_pyomo_unit, else_pyomo_unit,
+                    'Error in units found in expression: {}'.format(str(node)))
+
+        # then and else are the same
+        return (then_pyomo_unit, then_pint_unit)
+
+    def _get_unitless_with_radians_child(self, node, list_of_unit_tuples):
+        """
+        Get the units for trig functions. Checks that the length of list_of_unit_tuples is 1
+        and that the units of that child expression are radians, and returns (None, None)
+
+        Parameters
+        ----------
+        node : Pyomo expression node
+            The parent node of the children
+
+        list_of_unit_tuples : list
+           This is a list of tuples (one for each of the children) where each tuple
+           is a PyomoUnit, pint unit pair
+
+        Returns
+        -------
+            tuple : (None, None)
+
+        """
+        assert len(list_of_unit_tuples) == 1
+
+        pyomo_unit = list_of_unit_tuples[0][0]
+        pint_unit = list_of_unit_tuples[0][1]
+        ureg = self._pyomo_units_container._pint_registry()
+        if not self._pint_units_equivalent(pint_unit, ureg.radians):
+            raise UnitsError('Expected radians in argument to function in expression {}, but found {}'.format(
+                str(node), str(pyomo_unit)))
+
+        return (None, None)
+
+    def _get_radians_with_unitless_child(self, node, list_of_unit_tuples):
+        """
+        Get the units for inverse trig functions. Checks that the length of list_of_unit_tuples is 1
+        and that the child argument is unitless, and returns radians
+
+        Parameters
+        ----------
+        node : Pyomo expression node
+            The parent node of the children
+
+        list_of_unit_tuples : list
+           This is a list of tuples (one for each of the children) where each tuple
+           is a PyomoUnit, pint unit pair
+
+        Returns
+        -------
+            tuple : (PyomoUnit for radians, pint_unit for radians)
+
+        """
+        assert len(list_of_unit_tuples) == 1
+
+        pyomo_unit = list_of_unit_tuples[0][0]
+        pint_unit = list_of_unit_tuples[0][1]
+        if pyomo_unit is not None:
+            assert pint_unit is not None
+            raise UnitsError('Expected unitless argument to function in expression {}, but found {}'.format(
+                str(node), str(pyomo_unit)))
+
+        uc = self._pyomo_units_container
+        return (uc.radians, uc.radians._get_pint_unit())
+
+    def _get_unit_sqrt(self, node, list_of_unit_tuples):
+        """
+        Return the units for sqrt. Checks that the length of list_of_unit_tuples is one.
+
+        Parameters
+        ----------
+        node : Pyomo expression node
+            The parent node of the children
+
+        list_of_unit_tuples : list
+           This is a list of tuples (one for each of the children) where each tuple
+           is a PyomoUnit, pint unit pair
+
+        Returns
+        -------
+            tuple : (PyomoUnit, pint unit)
+
+        """
+        assert len(list_of_unit_tuples) == 1
+        if list_of_unit_tuples[0][0] is None:
+            assert list_of_unit_tuples[0][1] is None
+            return (None, None)
+        return (expr.sqrt(list_of_unit_tuples[0][0]), list_of_unit_tuples[0][1]**0.5)
 
     node_type_method_map = {
         expr.EqualityExpression: _get_unit_for_equivalent_children,
@@ -645,14 +827,40 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         expr.NPV_NegationExpression: _get_unit_for_single_child,
         expr.AbsExpression: _get_unit_for_single_child,
         expr.NPV_AbsExpression: _get_unit_for_single_child,
-        expr.UnaryFunctionExpression: _get_check_unitless_children,
-        expr.NPV_UnaryFunctionExpression: _get_check_unitless_children,
-        expr.Expr_ifExpression: _get_unit_for_equivalent_children,
+        expr.UnaryFunctionExpression: _get_unit_for_unary_function,
+        expr.NPV_UnaryFunctionExpression: _get_unit_for_unary_function,
+        expr.Expr_ifExpression: _get_unit_for_expr_if,
+        IndexTemplate: _get_unitless_no_children,
+        expr.GetItemExpression: _get_unitless_with_unitless_children,
         # ToDo: complete the rest of these
         expr.ExternalFunctionExpression: None,
         expr.NPV_ExternalFunctionExpression: None,
-        expr.GetItemExpression: None,
-        expr.LinearExpression: None,
+        expr.LinearExpression: None
+    }
+
+    _public = ['log', 'log10', 'sin', 'cos', 'tan', 'cosh', 'sinh', 'tanh',
+               'asin', 'acos', 'atan', 'exp', 'sqrt', 'asinh', 'acosh',
+               'atanh', 'ceil', 'floor']
+
+    unary_function_method_map = {
+        'log': _get_unitless_with_unitless_children,
+        'log10':_get_unitless_with_unitless_children,
+        'sin': _get_unitless_with_radians_child,
+        'cos': _get_unitless_with_radians_child,
+        'tan': _get_unitless_with_radians_child,
+        'sinh': _get_unitless_with_radians_child,
+        'cosh': _get_unitless_with_radians_child,
+        'tanh': _get_unitless_with_radians_child,
+        'asin': _get_radians_with_unitless_child,
+        'acos': _get_radians_with_unitless_child,
+        'atan': _get_radians_with_unitless_child,
+        'exp': _get_unitless_with_unitless_children,
+        'sqrt': _get_unit_sqrt,
+        'asinh': _get_radians_with_unitless_child,
+        'acosh': _get_radians_with_unitless_child,
+        'atanh': _get_radians_with_unitless_child,
+        'ceil': _get_unit_for_single_child,
+        'floor': _get_unit_for_single_child
     }
 
 
@@ -673,15 +881,15 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             if node_func is not None:
                 return node_func(self, node, data)
         raise TypeError('An unhandled expression node type: {} was encountered while retrieving the'
-                        ' units of an expression'.format(str(node_type)))
+                        ' units of expression'.format(str(node_type), str(node)))
 
 
-def _get_units_tuple(expr):
-    pyomo_unit, pint_unit = _UnitExtractionVisitor().walk_expression(expr=expr)
+def _get_units_tuple(expr, pyomo_units_container):
+    pyomo_unit, pint_unit = _UnitExtractionVisitor(pyomo_units_container).walk_expression(expr=expr)
     return (pyomo_unit, pint_unit)
 
 
-def get_units(expr):
+def get_units(expr, pyomo_units_container):
     """
     Return the Pyomo units corresponding to this expression (also performs validation
     and will raise an exception if units are not consistent).
@@ -695,12 +903,12 @@ def get_units(expr):
     -------
         Pyomo expression containing only units.
     """
-    pyomo_unit, pint_unit = _get_units_tuple(expr=expr)
+    pyomo_unit, pint_unit = _get_units_tuple(expr=expr, pyomo_units_container=pyomo_units_container)
     # ToDo: If we get dimensionless, should we return None?
     return pyomo_unit
 
 
-def check_units_consistency(expr, allow_exceptions=True):
+def check_units_consistency(expr, pyomo_units_container, allow_exceptions=True):
     """
     Check the consistency of the units within an expression. IF allow_exceptions is False,
     then this function swallows the exception and returns only True or False. Otherwise,
@@ -720,13 +928,13 @@ def check_units_consistency(expr, allow_exceptions=True):
         bool : True if units are consistent, and False if not
     """
     if allow_exceptions is True:
-        pyomo_unit, pint_unit = _get_units_tuple(expr=expr)
+        pyomo_unit, pint_unit = _get_units_tuple(expr=expr, pyomo_units_container=pyomo_units_container)
         # if we make it here, then no exceptions were thrown
         return True
 
     # allow_exceptions is not True, therefore swallow any exceptions in a try-except
     try:
-        pyomo_unit, pint_unit = _get_units_tuple(expr=expr)
+        pyomo_unit, pint_unit = _get_units_tuple(expr=expr, pyomo_units_container=pyomo_units_container)
     except:
         return False
 
