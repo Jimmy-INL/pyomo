@@ -211,6 +211,7 @@ class _PyomoUnit(NumericValue):
             "disabled. This error is often the result of treating a unit "
             "as though it were a number (e.g., passing a unit to a built-in "
             "math function). Avoid this error by using Pyomo-provided math "
+            "math function). Avoid this error by using Pyomo-provided math "
             "functions."
             % self.name)
 
@@ -232,89 +233,89 @@ class _PyomoUnit(NumericValue):
     # __rtruediv__ uses NumericValue base class implementation
     # __rpow__ uses NumericValue base class implementation
 
-    def __iadd__(self, other):
-        """
-        Incremental addition
-
-        This method is called when Python processes the statement::
-
-            self += other
-        Raises:
-            TypeError
-        """
-        raise TypeError(
-            "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place addition (+=)."
-            % self.name)
-
-    def __isub__(self, other):
-        """
-        Incremental subtraction
-
-        This method is called when Python processes the statement::
-
-            self -= other
-        Raises:
-            TypeError
-        """
-        raise TypeError(
-            "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place subtraction (-=)."
-            % self.name)
-
-    def __imul__(self, other):
-        """
-        Incremental multiplication
-
-        This method is called when Python processes the statement::
-
-            self *= other
-        Raises:
-            TypeError
-        """
-        raise TypeError(
-            "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place multiplication (*=)."
-            % self.name)
-
-    def __idiv__(self, other):
-        """
-        Incremental division
-
-        This method is called when Python processes the statement::
-
-            self /= other
-        Raises:
-            TypeError
-        """
-        raise TypeError(
-            "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place division (/=)."
-            % self.name)
-
-    def __itruediv__(self, other):
-        """
-        Incremental division (when __future__.division is in effect)
-
-        This method is called when Python processes the statement::
-
-            self /= other
-        Raises:
-            TypeError
-        """
-        raise TypeError(
-            "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place division (/=)."
-            % self.name)
-
-    def __ipow__(self, other):
-        """
-        Incremental power
-
-        This method is called when Python processes the statement::
-
-            self **= other
-        Raises:
-            TypeError
-        """
-        raise TypeError(
-            "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place exponentiation (**=)."
-            % self.name)
+    # def __iadd__(self, other):
+    #     """
+    #     Incremental addition
+    #
+    #     This method is called when Python processes the statement::
+    #
+    #         self += other
+    #     Raises:
+    #         TypeError
+    #     """
+    #     raise TypeError(
+    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place addition (+=)."
+    #         % self.name)
+    #
+    # def __isub__(self, other):
+    #     """
+    #     Incremental subtraction
+    #
+    #     This method is called when Python processes the statement::
+    #
+    #         self -= other
+    #     Raises:
+    #         TypeError
+    #     """
+    #     raise TypeError(
+    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place subtraction (-=)."
+    #         % self.name)
+    #
+    # def __imul__(self, other):
+    #     """
+    #     Incremental multiplication
+    #
+    #     This method is called when Python processes the statement::
+    #
+    #         self *= other
+    #     Raises:
+    #         TypeError
+    #     """
+    #     raise TypeError(
+    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place multiplication (*=)."
+    #         % self.name)
+    #
+    # def __idiv__(self, other):
+    #     """
+    #     Incremental division
+    #
+    #     This method is called when Python processes the statement::
+    #
+    #         self /= other
+    #     Raises:
+    #         TypeError
+    #     """
+    #     raise TypeError(
+    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place division (/=)."
+    #         % self.name)
+    #
+    # def __itruediv__(self, other):
+    #     """
+    #     Incremental division (when __future__.division is in effect)
+    #
+    #     This method is called when Python processes the statement::
+    #
+    #         self /= other
+    #     Raises:
+    #         TypeError
+    #     """
+    #     raise TypeError(
+    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place division (/=)."
+    #         % self.name)
+    #
+    # def __ipow__(self, other):
+    #     """
+    #     Incremental power
+    #
+    #     This method is called when Python processes the statement::
+    #
+    #         self **= other
+    #     Raises:
+    #         TypeError
+    #     """
+    #     raise TypeError(
+    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place exponentiation (**=)."
+    #         % self.name)
 
     # __neg__ uses NumericValue base class implementation
     # __pos__ uses NumericValue base class implementation
@@ -367,13 +368,37 @@ class _PyomoUnit(NumericValue):
 
 
 class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
-
     def __init__(self, pyomo_units_container, units_equivalence_tolerance=1e-12):
         """
-        Class used to check and retrieve Pyomo and pint units from expressions
+        Visitor class used to determine units of an expression. Do not use
+        this class directly, but rather use :func:`get_units` or
+        :func:`check_units_consistency`.
+
+        Parameters
+        ----------
+        pyomo_units_container : PyomoUnitsContainer
+           Instance of the PyomoUnitsContainer that was used for the units
+           in the expressions. Pyomo does not support "mixing" units from
+           different containers
+
+        units_equivalence_tolerance : float (default 1e-12)
+            Floating point tolerance used when deciding if units are equivalent
+            or not. (It can happen that units
+
+        Notes
+        -----
+
+        This class inherits from the :class:`StreamBasedExpressionVisitor` to implement
+        a walker that returns the pyomo units and pint units corresponding to an
+        expression.
+
+        There are class attributes (dicts) that map the expression node type to the
+        particular method that should be called to return the units of the node based
+        on the units of its child arguments. This map is used in exitNode.
         """
         super(_UnitExtractionVisitor, self).__init__()
         self._pyomo_units_container = pyomo_units_container
+        self._pint_ureg = self._pyomo_units_container._pint_registry()
         self._units_equivalence_tolerance = units_equivalence_tolerance
 
     def _pint_units_equivalent(self, lhs, rhs):
@@ -442,6 +467,68 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         # checks were OK, return the first one in the list
         return (list_of_unit_tuples[0][0], list_of_unit_tuples[0][1])
+
+    def _get_unit_for_linear_expression(self, node, list_of_unit_tuples):
+        """
+        Return the unit expression corresponding to a node of LinearExpression
+        type. This is a special node since it does not use "args" the way
+        other expression types do. Because of this, the StreamBasedExpressionVisitor
+        does not pick up on the "children", and list_of_unit_tuples is empty.
+        Therefore, we implement the recursion into coeffs and vars ourselves.
+
+        Parameters
+        ----------
+        node : Pyomo expression node
+            The parent node of the children
+
+        list_of_unit_tuples : list
+           This is a list of tuples (one for each of the children) where each tuple
+           is a PyomoUnit, pint unit pair (Note: this is different for LinearExpression,
+           - see method documentation above).
+
+        Returns
+        -------
+            tuple : (PyomoUnit, pint unit)
+        """
+        # StreamBasedExpressionVisitor does not handle the children of this node
+        assert len(list_of_unit_tuples) == 0
+
+        # ToDo: This may be expensive for long summations and, in the case of reporting only, we may want to skip the checks
+        term_unit_list = []
+        if node.constant:
+            const_units = _get_units_tuple(node.constant, self._pyomo_units_container)
+            term_unit_list.append(const_units)
+        assert len(node.linear_coefs) == len(node.linear_vars)
+        for k,v in enumerate(node.linear_vars):
+            c = node.linear_coefs[k]
+            v_units = _get_units_tuple(v, self._pyomo_units_container)
+            c_units = _get_units_tuple(c, self._pyomo_units_container)
+            if v_units[0] is None and c_units[0] is None:
+                assert v_units[1] is None
+                assert c_units[1] is None
+                term_unit_list.append((None, None))
+            elif v_units[0] is None:
+                assert v_units[1] is None
+                term_unit_list.append((c_units[0], c_units[1]))
+            elif c_units[0] is None:
+                assert c_units[1] is None
+                term_unit_list.append((v_units[0], v_units[1]))
+            else:
+                # both are not None, we need to multiply them together
+                term_unit_list.append( (c_units[0]*v_units[0], c_units[1]*v_units[1]))
+
+        # collected the units for all the terms, so now
+        # verify that the pint units are equivalent from each
+        # of the child nodes - assume that PyomoUnits are equivalent
+        pint_unit_0 = term_unit_list[0][1]
+        for i in range(1, len(term_unit_list)):
+            pint_unit_i = term_unit_list[i][1]
+            if not self._pint_units_equivalent(pint_unit_0, pint_unit_i):
+                raise InconsistentUnitsError(pint_unit_0, pint_unit_i,
+                        'Error in units found in expression: {}'.format(str(node)))
+
+        # checks were OK, return the first one in the list
+        return (term_unit_list[0][0], term_unit_list[0][1])
 
     def _get_unit_for_product(self, node, list_of_unit_tuples):
         """
@@ -822,8 +909,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         expr.GetItemExpression: _get_unitless_with_unitless_children,
         expr.ExternalFunctionExpression: _get_unitless_with_unitless_children,
         expr.NPV_ExternalFunctionExpression: _get_unitless_with_unitless_children,
-        # ToDo: complete the remaining expression types
-        expr.LinearExpression: _get_unit_for_equivalent_children
+        expr.LinearExpression: _get_unit_for_linear_expression
     }
 
     unary_function_method_map = {
@@ -855,14 +941,17 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             # ToDo: Check for Var or Param and return their units...
 
             # I have a leaf, but this is not a PyomoUnit - (treat as dimensionless)
-            return (None, None)
+            dless = self._pyomo_units_container.dimensionless
+            return (dless, dless._pint_unit)
 
         # not a leaf - get the appropriate function for type of the node
         node_type = type(node)
         if node_type in self.node_type_method_map:
             node_func = self.node_type_method_map[node_type]
             if node_func is not None:
-                return node_func(self, node, data)
+                pyomo_unit, pint_unit = node_func(self, node, data)
+                return (pyomo_unit, pint_unit)
+
         raise TypeError('An unhandled expression node type: {} was encountered while retrieving the'
                         ' units of expression'.format(str(node_type), str(node)))
 

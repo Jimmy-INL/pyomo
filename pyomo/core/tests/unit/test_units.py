@@ -94,21 +94,21 @@ class TestPyomoUnit(unittest.TestCase):
         with self.assertRaises(UnitsError):
             check_units_consistency(x, uc)
 
-        with self.assertRaises(TypeError):
-            x = kg
-            x += 3
+        x = kg
+        x += kg
+        self.assertTrue(str(get_units(x, uc)), 'kg')
 
-        with self.assertRaises(TypeError):
-            x = kg
-            x -= 3
+        x = kg
+        x -= 2.0*kg
+        self.assertTrue(str(get_units(x, uc)), 'kg')
 
-        with self.assertRaises(TypeError):
-            x = kg
-            x *= 3
+        x = kg
+        x *= 3
+        self.assertTrue(str(get_units(x, uc)), 'kg')
 
-        with self.assertRaises(TypeError):
-            x = kg
-            x **= 3
+        x = kg
+        x **= 3
+        self.assertTrue(str(get_units(x, uc)), 'kg**3')
 
         self.assertTrue(str(get_units(-kg, uc)), 'kg')
         self.assertTrue(str(get_units(+kg, uc)), 'kg')
@@ -365,10 +365,12 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_fail(model.ef(model.x*kg, model.y), uc, expr.ExternalFunctionExpression, UnitsError)
         self._get_check_units_fail(model.ef(2.0*kg, 1.0), uc, expr.NPV_ExternalFunctionExpression, UnitsError)
 
-    @unittest.skip('Skipped testing LinearExpression since StreamBasedExpressionVisitor does not handle LinearExpressions')
+    # @unittest.skip('Skipped testing LinearExpression since StreamBasedExpressionVisitor does not handle LinearExpressions')
     def test_linear_expression(self):
         uc = PyomoUnitsContainer()
+        model = ConcreteModel()
         kg = uc.kg
+        m = uc.m
 
         # test LinearExpression
         # ToDo: Once this test is working correctly, this code should be moved to the test above
@@ -381,14 +383,6 @@ class TestPyomoUnit(unittest.TestCase):
         linex2 = sum_product(model.vv, {'A': kg, 'B': m, 'C':kg}, index=['A', 'B', 'C'])
         self._get_check_units_fail(linex2, uc, expr.LinearExpression)
 
-        linex3 = sum_product({'A': 2.0, 'B': 3.0}, {'A': 3.0, 'B': 2.0}, index=['A', 'B'])
-        self._get_check_units_ok(linex3, uc, None, expr.NPV_LinearExpression)
-
-        linex4 = sum_product({'A': kg, 'B': kg}, {'A': m, 'B': m}, index=['A', 'B'])
-        self._get_check_units_ok(linex4, uc, 'm*kg', expr.NPV_LinearExpression)
-
-        linex5 = sum_product({'A': kg, 'B': m}, {'A': m, 'B': m}, index=['A', 'B'])
-        self._get_check_units_fail(linex5, uc, expr.NPV_LinearExpression)
 
     def test_dimensionless(self):
         uc = PyomoUnitsContainer()
