@@ -366,6 +366,25 @@ class _PyomoUnit(NumericValue):
         # else:
         #     ostream.write('{:!~s}'.format(self._pint_unit))
 
+def is_leaf(expr):
+    """
+    Returns True if the object in expr is a leaf node (i.e. it has
+    no args method with children)
+
+    Parameters
+    ----------
+    expr : Pyomo expression
+        The expression to test
+
+    Returns
+    -------
+        bool : Returns True if the expr is a leaf node, False otherwise
+    """
+    if type(expr) in nonpyomo_leaf_types \
+        or not expr.is_expression_type():
+        return True
+    return False
+
 
 class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
     def __init__(self, pyomo_units_container, units_equivalence_tolerance=1e-12):
@@ -926,7 +945,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
     }
 
     def exitNode(self, node, data):
-        if expr.is_leaf(node):
+        if is_leaf(node):
             if isinstance(node, _PyomoUnit):
                 return (node, node._get_pint_unit())
 
