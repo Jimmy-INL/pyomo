@@ -32,19 +32,21 @@ Notes:
         Python package and supports all the units that are supported by pint.
     * Currently, we do NOT test units of unary functions that include native types since
         these are removed by the expression system before getting to the units checking code
+Todo:
+    * fix documentation to include proper docstring references to classes/methods, etc.
+    * create a new pint unit definition file (and load from that file)
+        since the precision in pint is insufficient for 1e-8 constraint tolerances
+    * implement and test pickling and un-pickling
+    * implement convert functionality
+    * implement remove_unit(x, expected_unit) that returns a unitless version of the expression
+    * Add units capabilities to Var and Param
+    * Investigate issues surrounding absolute and relative temperatures (delta units)
+    * Implement external function interface that specifies units for the arguments and the function itself
+    * Implement LinearExpression and NPV_LinearExpression
+
 
 """
-# """Pyomo Units Module
-#
-# This module provides support for units checking within Pyomo.
-#
-# Units can be used within expressions, or passed to :class:`Var <pyomo.environ.Var>` components
-# or :class:`Param <pyomo.environ.Param>` components to specify their units.
-# To use this package within your Pyomo model, you first need a units manager. There
-# is a module level units manager called units_mananger or you can create your own
-# instance of the :class:`UnitsManager`. With this object you can then use the pre-defined
-# units or create new units.
-#
+# Note: This documentation is not yet correct - this is how the units will eventually work when complete
 # Examples:
 #     To use a unit within an expression, simply reference the unit
 #     as a field on the units manager.
@@ -55,26 +57,11 @@ Notes:
 #         >>> model.x = Var(units=um.kg)
 #         >>> model.obj = Objective(expr=(model.x - 97.2*um.kg)**2)
 #
-# Notes:
-#     The implementation is currently based on `pint <http://pint.readthedocs.io>`_
-#     Python package and supports all the units that are supported by pint.
-#
-# Todo:
-#     * fix documentation to include proper docstring references to classes/methods, etc.
-#     * create a new pint unit definition file (and load from that file)
-#         since the precision in pint is insufficient for 1e-8 constraint tolerances
-#     * test pickling and un-pickling
-#     * implement convert functionality
-#     * implement remove_unit(x, expected_unit) that returns a unitless version of the expression
-#     * Add units capabilities to Var and Param
-#     * Investigate issues surrounding absolute and relative temperatures (delta units)
-#
 # """
 
 from pyomo.core.expr.numvalue import NumericValue, nonpyomo_leaf_types, value
 from pyomo.core.base.template_expr import IndexTemplate
 from pyomo.core.expr import current as expr
-import math
 import pint
 
 
@@ -257,7 +244,7 @@ class _PyomoUnit(NumericValue):
         """
         raise TypeError(
             "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place addition (+=)."
-            % (self.name))
+            % self.name)
 
     def __isub__(self, other):
         """
@@ -271,7 +258,7 @@ class _PyomoUnit(NumericValue):
         """
         raise TypeError(
             "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place subtraction (-=)."
-            % (self.name))
+            % self.name)
 
     def __imul__(self, other):
         """
@@ -285,7 +272,7 @@ class _PyomoUnit(NumericValue):
         """
         raise TypeError(
             "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place multiplication (*=)."
-            % (self.name))
+            % self.name)
 
     def __idiv__(self, other):
         """
@@ -299,7 +286,7 @@ class _PyomoUnit(NumericValue):
         """
         raise TypeError(
             "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place division (/=)."
-            % (self.name))
+            % self.name)
 
     def __itruediv__(self, other):
         """
@@ -313,7 +300,7 @@ class _PyomoUnit(NumericValue):
         """
         raise TypeError(
             "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place division (/=)."
-            % (self.name))
+            % self.name)
 
     def __ipow__(self, other):
         """
@@ -327,7 +314,7 @@ class _PyomoUnit(NumericValue):
         """
         raise TypeError(
             "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place exponentiation (**=)."
-            % (self.name))
+            % self.name)
 
     # __neg__ uses NumericValue base class implementation
     # __pos__ uses NumericValue base class implementation
@@ -336,9 +323,8 @@ class _PyomoUnit(NumericValue):
     def __str__(self):
         """ Returns a string representing the unit """
 
-        # I am returning the short form here, could
-        # also return str(self._pint_unit) for the long form
-        return '{:~}'.format(self._pint_unit)
+        # The ~ returns the short form of the pint unit
+        return '{:!~s}'.format(self._pint_unit)
 
     def to_string(self, verbose=None, labeler=None, smap=None,
                   compute_values=False):
@@ -350,8 +336,7 @@ class _PyomoUnit(NumericValue):
         Returns:
             A string representation for the expression tree.
         """
-        #ToDo: Expand the functionality here as needed.
-        return self.__str__()
+        return str(self)
 
     def __nonzero__(self):
         """Unit is treated as a constant value of 1.0. Therefore, it is always nonzero
@@ -370,27 +355,28 @@ class _PyomoUnit(NumericValue):
 
     def pprint(self, ostream=None, verbose=False):
         """Display a user readable string description of this object.
-           ToDo:
-               * This is not implemented yet. Need to write a method to
-                produce a "printable" version of the unit.
         """
         if ostream is None:         #pragma:nocover
             ostream = sys.stdout
-        # ToDo: should this do the long form of the unit?
         ostream.write(str(self))
+        # There is also a long form, but the verbose flag is not really the correct indicator
+        # if verbose:
+        #     ostream.write('{:!s}'.format(self._pint_unit))
+        # else:
+        #     ostream.write('{:!~s}'.format(self._pint_unit))
 
 
 class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
-    def __init__(self, pyomo_units_container):
+    def __init__(self, pyomo_units_container, units_equivalence_tolerance=1e-12):
         """
         Class used to check and retrieve Pyomo and pint units from expressions
         """
         super(_UnitExtractionVisitor, self).__init__()
         self._pyomo_units_container = pyomo_units_container
+        self._units_equivalence_tolerance = units_equivalence_tolerance
 
-    @staticmethod
-    def _pint_units_equivalent(lhs, rhs):
+    def _pint_units_equivalent(self, lhs, rhs):
         """
         Check if two pint units are equivalent
 
@@ -413,12 +399,12 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             return False
 
         # Units are not the same actual objects.
-        # Convert to pint Quantity objects
-        # and use pint to compare
+        # Use pint mechanisms to compare
+        # First, convert to quantities
         lhsq = 1.0 * lhs
         rhsq = 1.0 * rhs
-        # ToDo: Does this need an approximate "float" check?
-        if lhsq == rhsq:
+        if lhsq.dimensionality == rhsq.dimensionality and \
+            abs(lhsq-rhsq).magnitude < self._units_equivalence_tolerance:
             return True
 
         return False
@@ -442,7 +428,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         -------
             tuple : (PyomoUnit, pint unit)
         """
-        # ToDo: This may be expensive for long summations and, in the case of reporting, we may want to skip the checks
+        # ToDo: This may be expensive for long summations and, in the case of reporting only, we may want to skip the checks
         assert len(list_of_unit_tuples) > 0
 
         # verify that the pint units are equivalent from each
@@ -450,7 +436,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         pint_unit_0 = list_of_unit_tuples[0][1]
         for i in range(1, len(list_of_unit_tuples)):
             pint_unit_i = list_of_unit_tuples[i][1]
-            if not _UnitExtractionVisitor._pint_units_equivalent(pint_unit_0, pint_unit_i):
+            if not self._pint_units_equivalent(pint_unit_0, pint_unit_i):
                 raise InconsistentUnitsError(pint_unit_0, pint_unit_i,
                         'Error in units found in expression: {}'.format(str(node)))
 
@@ -656,11 +642,13 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         """
         assert len(list_of_unit_tuples) == 0
         assert is_leaf(node)
+
         # # check that the leaf does not have any units
-        # # ToDo: This "might" be the planned mechanism for getting units from Pyomo component leaves
+        # # ToDo: Leave this commented code here since this "might" be similar to the planned mechanism for getting units from Pyomo component leaves
         # if hasattr(node, 'get_units') and node.get_units() is not None:
         #     raise UnitsError('Expected dimensionless units in {}, but found {}.'.format(str(node),
         #                         str(node.get_units())))
+
         return (None, None)
 
     def _get_unit_for_unary_function(self, node, list_of_unit_tuples):
@@ -718,7 +706,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         then_pyomo_unit, then_pint_unit = list_of_unit_tuples[1]
         else_pyomo_unit, else_pint_unit = list_of_unit_tuples[2]
 
-        if not _UnitExtractionVisitor._pint_units_equivalent(then_pint_unit, else_pint_unit):
+        if not self._pint_units_equivalent(then_pint_unit, else_pint_unit):
             raise InconsistentUnitsError(then_pyomo_unit, else_pyomo_unit,
                     'Error in units found in expression: {}'.format(str(node)))
 
@@ -832,15 +820,11 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         expr.Expr_ifExpression: _get_unit_for_expr_if,
         IndexTemplate: _get_unitless_no_children,
         expr.GetItemExpression: _get_unitless_with_unitless_children,
-        # ToDo: complete the rest of these
-        expr.ExternalFunctionExpression: None,
-        expr.NPV_ExternalFunctionExpression: None,
-        expr.LinearExpression: None
+        expr.ExternalFunctionExpression: _get_unitless_with_unitless_children,
+        expr.NPV_ExternalFunctionExpression: _get_unitless_with_unitless_children,
+        # ToDo: complete the remaining expression types
+        expr.LinearExpression: _get_unit_for_equivalent_children
     }
-
-    _public = ['log', 'log10', 'sin', 'cos', 'tan', 'cosh', 'sinh', 'tanh',
-               'asin', 'acos', 'atan', 'exp', 'sqrt', 'asinh', 'acosh',
-               'atanh', 'ceil', 'floor']
 
     unary_function_method_map = {
         'log': _get_unitless_with_unitless_children,
@@ -862,7 +846,6 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         'ceil': _get_unit_for_single_child,
         'floor': _get_unit_for_single_child
     }
-
 
     def exitNode(self, node, data):
         if expr.is_leaf(node):
@@ -1078,7 +1061,6 @@ class PyomoUnitsContainer(object):
             defn_str = '{0!s} = {1:17.16g} * {2!s}; offset: {3:17.16g}'.format(unit_name, float(conv_factor), base_unit_name,
                                                                      float(conv_offset))
         self._pint_ureg.define(defn_str)
-
 
 
 units_container = PyomoUnitsContainer()

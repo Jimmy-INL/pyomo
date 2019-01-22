@@ -16,7 +16,12 @@ from pyomo.core.base.template_expr import IndexTemplate
 from pyomo.core.expr import inequality
 import pyomo.core.expr.current as expr
 from pyomo.core.base.units import PyomoUnitsContainer, get_units, InconsistentUnitsError, \
-    UnitsError, check_units_consistency, _get_units_tuple
+    UnitsError, check_units_consistency
+from six import StringIO
+
+
+def python_callback_function(arg1, arg2):
+    return 42.0
 
 class TestPyomoUnit(unittest.TestCase):
 
@@ -122,6 +127,12 @@ class TestPyomoUnit(unittest.TestCase):
         # __call__ returns 1.0
         self.assertEqual(kg(), 1.0)
         self.assertEqual(value(kg), 1.0)
+
+        # test pprint
+        buf = StringIO()
+        kg.pprint(ostream=buf)
+        self.assertEqual('kg', buf.getvalue())
+
 
     def _get_check_units_ok(self, x, pyomo_units_container, str_check=None, expected_type=None):
         if expected_type is not None:
@@ -344,13 +355,46 @@ class TestPyomoUnit(unittest.TestCase):
         j = IndexTemplate(model.S)
         self._get_check_units_ok(i, uc, None, IndexTemplate)
 
-        model.vv = Var(model.S, model.S)
-        self._get_check_units_ok(model.vv[i,j+1], uc, None, expr.GetItemExpression)
+        model.mat = Var(model.S, model.S)
+        self._get_check_units_ok(model.mat[i,j+1], uc, None, expr.GetItemExpression)
 
-        # ToDo: complete the remaining expressions
         # test ExternalFunctionExpression, NPV_ExternalFunctionExpression
+        model.ef = ExternalFunction(python_callback_function)
+        self._get_check_units_ok(model.ef(model.x, model.y), uc, None, expr.ExternalFunctionExpression)
+        self._get_check_units_ok(model.ef(1.0, 2.0), uc, None, expr.NPV_ExternalFunctionExpression)
+        self._get_check_units_fail(model.ef(model.x*kg, model.y), uc, expr.ExternalFunctionExpression, UnitsError)
+        self._get_check_units_fail(model.ef(2.0*kg, 1.0), uc, expr.NPV_ExternalFunctionExpression, UnitsError)
+
+    @unittest.skip('Skipped testing LinearExpression since StreamBasedExpressionVisitor does not handle LinearExpressions')
+    def test_linear_expression(self):
+        uc = PyomoUnitsContainer()
+        kg = uc.kg
 
         # test LinearExpression
+        # ToDo: Once this test is working correctly, this code should be moved to the test above
+        model.vv = Var(['A', 'B', 'C'])
+        self._get_check_units_ok(sum_product(model.vv), uc, None, expr.LinearExpression)
+
+        linex1 = sum_product(model.vv, {'A': kg, 'B': kg, 'C':kg}, index=['A', 'B', 'C'])
+        self._get_check_units_ok(linex1, uc, 'kg', expr.LinearExpression)
+
+        linex2 = sum_product(model.vv, {'A': kg, 'B': m, 'C':kg}, index=['A', 'B', 'C'])
+        self._get_check_units_fail(linex2, uc, expr.LinearExpression)
+
+        linex3 = sum_product({'A': 2.0, 'B': 3.0}, {'A': 3.0, 'B': 2.0}, index=['A', 'B'])
+        self._get_check_units_ok(linex3, uc, None, expr.NPV_LinearExpression)
+
+        linex4 = sum_product({'A': kg, 'B': kg}, {'A': m, 'B': m}, index=['A', 'B'])
+        self._get_check_units_ok(linex4, uc, 'm*kg', expr.NPV_LinearExpression)
+
+        linex5 = sum_product({'A': kg, 'B': m}, {'A': m, 'B': m}, index=['A', 'B'])
+        self._get_check_units_fail(linex5, uc, expr.NPV_LinearExpression)
+
+    def test_dimensionless(self):
+        uc = PyomoUnitsContainer()
+        kg = uc.kg
+        dless = uc.dimensionless
+        self._get_check_units_ok(2.0 == 2.0*dless, uc, None, expr.EqualityExpression)
 
     def test_unit_creation(self):
         uc = PyomoUnitsContainer()
