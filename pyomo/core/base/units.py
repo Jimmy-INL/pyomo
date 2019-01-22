@@ -38,7 +38,7 @@ Todo:
         since the precision in pint is insufficient for 1e-8 constraint tolerances
     * implement and test pickling and un-pickling
     * implement convert functionality
-    * implement remove_unit(x, expected_unit) that returns a unitless version of the expression
+    * implement remove_unit(x, expected_unit) that returns a dimensionless version of the expression
     * Add units capabilities to Var and Param
     * Investigate issues surrounding absolute and relative temperatures (delta units)
     * Implement external function interface that specifies units for the arguments and the function itself
@@ -419,10 +419,6 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         if lhs == rhs:
             return True
 
-        if (lhs is None and rhs is not None) or \
-            (lhs is not None and rhs is None):
-            return False
-
         # Units are not the same actual objects.
         # Use pint mechanisms to compare
         # First, convert to quantities
@@ -503,19 +499,12 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             c = node.linear_coefs[k]
             v_units = _get_units_tuple(v, self._pyomo_units_container)
             c_units = _get_units_tuple(c, self._pyomo_units_container)
-            if v_units[0] is None and c_units[0] is None:
-                assert v_units[1] is None
-                assert c_units[1] is None
-                term_unit_list.append((None, None))
-            elif v_units[0] is None:
-                assert v_units[1] is None
-                term_unit_list.append((c_units[0], c_units[1]))
-            elif c_units[0] is None:
-                assert c_units[1] is None
+            if self._pint_units_equivalent(c_units[1], self._pint_ureg.dimensionless):
                 term_unit_list.append((v_units[0], v_units[1]))
+            elif self._pint_units_equivalent(v_units[1], self._pint_ureg.dimensionless):
+                term_unit_list.append((c_units[0], c_units[1]))
             else:
-                # both are not None, we need to multiply them together
-                term_unit_list.append( (c_units[0]*v_units[0], c_units[1]*v_units[1]))
+                term_unit_list.append((c_units[0]*v_units[0], c_units[1]*v_units[1]))
 
         # collected the units for all the terms, so now
         # verify that the pint units are equivalent from each
@@ -550,27 +539,27 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         """
         assert len(list_of_unit_tuples) > 1
 
+        dless = self._pyomo_units_container.dimensionless
         pyomo_unit = None
         pint_unit = None
         for i in range(len(list_of_unit_tuples)):
             pyomo_unit_i = list_of_unit_tuples[i][0]
             pint_unit_i = list_of_unit_tuples[i][1]
+            if self._pint_units_equivalent(pint_unit_i, self._pint_ureg.dimensionless):
+                continue
 
-            # if pyomo_unit_i and pint_unit_i are None, interpreted as dimensionless
-            # but both should be None
-            if pyomo_unit_i is None:
-                assert pint_unit_i is None
-            if pint_unit_i is None:
-                assert pyomo_unit_i is None
+            # we have units
+            if pyomo_unit is None:
+                assert pint_unit is None
+                pyomo_unit = pyomo_unit_i
+                pint_unit = pint_unit_i
+            else:
+                pyomo_unit = pyomo_unit * pyomo_unit_i
+                pint_unit = pint_unit * pint_unit_i
 
-            if pyomo_unit_i is not None:
-                if pyomo_unit is None:
-                    assert pint_unit is None
-                    pyomo_unit = pyomo_unit_i
-                    pint_unit = pint_unit_i
-                else:
-                    pyomo_unit = pyomo_unit * pyomo_unit_i
-                    pint_unit = pint_unit * pint_unit_i
+        if pyomo_unit is None:
+            assert pint_unit is None
+            return (self._pyomo_units_container.dimensionless, self._pint_ureg.dimensionless)
 
         return (pyomo_unit, pint_unit)
 
@@ -594,9 +583,11 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         """
         assert len(list_of_unit_tuples) == 1
 
-        pyomo_unit = 1.0/list_of_unit_tuples[0][0]
-        pint_unit = 1.0/list_of_unit_tuples[0][1]
-        return (pyomo_unit, pint_unit)
+        pyomo_unit = list_of_unit_tuples[0][0]
+        pint_unit = list_of_unit_tuples[0][1]
+        if self._pint_units_equivalent(pint_unit, self._pint_ureg.dimensionless):
+            return (pyomo_unit, pint_unit) # these are dimensionless
+        return (1.0/pyomo_unit, 1.0/pint_unit)
 
     def _get_unit_for_pow(self, node, list_of_unit_tuples):
         """
@@ -626,30 +617,28 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         pyomo_unit_exponent = list_of_unit_tuples[1][0]
         pint_unit_exponent = list_of_unit_tuples[1][1]
 
-        # check to make sure that the exponent is unitless
-        if pyomo_unit_exponent is not None or \
-            pint_unit_exponent is not None:
-            # ToDo: might have to check for dimensionless here as well
+        # check to make sure that the exponent is dimensionless
+        if not self._pint_units_equivalent(pint_unit_exponent, self._pint_ureg.dimensionless):
             raise UnitsError("Error in sub-expression: {}. "
-                             "Exponents in a pow expression must be unitless."
+                             "Exponents in a pow expression must be dimensionless."
                              "".format(node))
 
-        # if the base is unitless, return None
-        if pyomo_unit_base is None:
-            assert pint_unit_base is None
-            return (None, None)
+        # if the base is dimensionless, return Dimensionless
+        if self._pint_units_equivalent(pint_unit_base, self._pint_ureg.dimensionless):
+            # base is dimensionless - does not matter if the exponent is fixed
+            return (pyomo_unit_base, pyomo_unit_exponent)
 
-        # Since the base is not unitless, make sure that the exponent
+        # Since the base is not dimensionless, make sure that the exponent
         # is a fixed number
         exponent = node.args[1]
         if type(exponent) not in nonpyomo_leaf_types \
             and not (exponent.is_fixed() or exponent.is_constant()):
             raise UnitsError("The base of an exponent has units {}, but "
-                             "the exponent is not fixed to a numerical value."
+                             "the exponent is not a fixed numerical value."
                              "".format(str(list_of_unit_tuples[0][0])))
         exponent_value = value(exponent)
-        pyomo_unit = list_of_unit_tuples[0][0]**exponent_value
-        pint_unit = list_of_unit_tuples[0][1]**exponent_value
+        pyomo_unit = pyomo_unit_base**exponent_value
+        pint_unit = pint_unit_base**exponent_value
 
         return (pyomo_unit, pint_unit)
 
@@ -678,10 +667,10 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         pint_unit = list_of_unit_tuples[0][1]
         return (pyomo_unit, pint_unit)
 
-    def _get_unitless_with_unitless_children(self, node, list_of_unit_tuples):
+    def _get_dimensionless_with_dimensionless_children(self, node, list_of_unit_tuples):
         """
-        Check to make sure that any child arguments are unitless (for functions like exp()) and
-        return None (dimensionless) if successful. Although odd that this does not just return
+        Check to make sure that any child arguments are dimensionless (for functions like exp())
+        and return dimensionless if successful. Although odd that this does not just return
         a boolean, it is done this way to match the signature of the other methods used to get
         units for expressions.
 
@@ -696,22 +685,22 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         Returns
         -------
-            (None, None) : if successful, returns unitless for both pyomo_unit and pint_unit, and
-                raises UnitError otherwise
+            tuple : (dimensionless (PyomoUnit), dimensionless (pint unit))
+                if successful, returns dimensionless for both pyomo_unit
+                and pint_unit, otherwise raises UnitError
         """
         for (pyomo_unit, pint_unit) in list_of_unit_tuples:
-            if pyomo_unit is not None:
-                assert pint_unit is not None
+            if not self._pint_units_equivalent(pint_unit, self._pint_ureg.dimensionless):
                 raise UnitsError('Expected dimensionless units in {}, but found {}.'.format(str(node), str(pyomo_unit)))
-            assert pint_unit is None
 
         # if we make it here, then all are equal to None
-        return (None, None)
+        return (pyomo_unit, pint_unit)
 
-    def _get_unitless_no_children(self, node, list_of_unit_tuples):
+    def _get_dimensionless_no_children(self, node, list_of_unit_tuples):
         """
-        Check to make sure the length of list_of_unit_tuples is zero, and return
-        (None, None). Used for leaf nodes that should not have any units.
+        Check to make sure the length of list_of_unit_tuples is zero, and returns
+        dimensionless units of PyomoUnit and pint unit types.
+        Used for leaf nodes that should not have any units.
 
         Parameters
         ----------
@@ -724,8 +713,9 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         Returns
         -------
-            (None, None) : if successful, returns unitless for both pyomo_unit and pint_unit, and
-                raises UnitError otherwise
+            tuple : (dimensionless (PyomoUnit), dimensionless (pint unit))
+                if successful, returns dimensionless for both pyomo_unit
+                and pint_unit, otherwise raises UnitError
         """
         assert len(list_of_unit_tuples) == 0
         assert is_leaf(node)
@@ -736,7 +726,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         #     raise UnitsError('Expected dimensionless units in {}, but found {}.'.format(str(node),
         #                         str(node.get_units())))
 
-        return (None, None)
+        return (self._pyomo_units_container.dimensionless, self._pint_ureg.dimensionless)
 
     def _get_unit_for_unary_function(self, node, list_of_unit_tuples):
         """
@@ -800,10 +790,11 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         # then and else are the same
         return (then_pyomo_unit, then_pint_unit)
 
-    def _get_unitless_with_radians_child(self, node, list_of_unit_tuples):
+    def _get_dimensionless_with_radians_child(self, node, list_of_unit_tuples):
         """
         Get the units for trig functions. Checks that the length of list_of_unit_tuples is 1
-        and that the units of that child expression are radians, and returns (None, None)
+        and that the units of that child expression are radians, and returns dimensionless
+        for the Pyomo unit and the pint unit
 
         Parameters
         ----------
@@ -816,7 +807,9 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         Returns
         -------
-            tuple : (None, None)
+            tuple : (dimensionless (PyomoUnit), dimensionless (pint unit))
+                if successful, returns dimensionless for both pyomo_unit
+                and pint_unit, otherwise raises UnitError
 
         """
         assert len(list_of_unit_tuples) == 1
@@ -828,12 +821,12 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             raise UnitsError('Expected radians in argument to function in expression {}, but found {}'.format(
                 str(node), str(pyomo_unit)))
 
-        return (None, None)
+        return (self._pyomo_units_container.dimensionless, self._pint_ureg.dimensionless)
 
-    def _get_radians_with_unitless_child(self, node, list_of_unit_tuples):
+    def _get_radians_with_dimensionless_child(self, node, list_of_unit_tuples):
         """
         Get the units for inverse trig functions. Checks that the length of list_of_unit_tuples is 1
-        and that the child argument is unitless, and returns radians
+        and that the child argument is dimensionless, and returns radians
 
         Parameters
         ----------
@@ -853,13 +846,13 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         pyomo_unit = list_of_unit_tuples[0][0]
         pint_unit = list_of_unit_tuples[0][1]
-        if pyomo_unit is not None:
-            assert pint_unit is not None
-            raise UnitsError('Expected unitless argument to function in expression {}, but found {}'.format(
-                str(node), str(pyomo_unit)))
+        if not self._pint_units_equivalent(pint_unit, self._pint_ureg.dimensionless):
+            raise UnitsError('Expected dimensionless argument to function in expression {},'
+                             ' but found {}'.format(
+                             str(node), str(pyomo_unit)))
 
         uc = self._pyomo_units_container
-        return (uc.radians, uc.radians._get_pint_unit())
+        return (uc.radians, self._pint_ureg.radians)
 
     def _get_unit_sqrt(self, node, list_of_unit_tuples):
         """
@@ -880,10 +873,9 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         """
         assert len(list_of_unit_tuples) == 1
-        if list_of_unit_tuples[0][0] is None:
-            assert list_of_unit_tuples[0][1] is None
-            return (None, None)
-        return (expr.sqrt(list_of_unit_tuples[0][0]), list_of_unit_tuples[0][1]**0.5)
+        if self._pint_units_equivalent(list_of_unit_tuples[0][1], self._pint_ureg.dimensionless):
+            return (self._pyomo_units_container.dimensionless, self._pint_ureg.dimensionless)
+        return (list_of_unit_tuples[0][0]**0.5, list_of_unit_tuples[0][1]**0.5)
 
     node_type_method_map = {
         expr.EqualityExpression: _get_unit_for_equivalent_children,
@@ -905,30 +897,30 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         expr.UnaryFunctionExpression: _get_unit_for_unary_function,
         expr.NPV_UnaryFunctionExpression: _get_unit_for_unary_function,
         expr.Expr_ifExpression: _get_unit_for_expr_if,
-        IndexTemplate: _get_unitless_no_children,
-        expr.GetItemExpression: _get_unitless_with_unitless_children,
-        expr.ExternalFunctionExpression: _get_unitless_with_unitless_children,
-        expr.NPV_ExternalFunctionExpression: _get_unitless_with_unitless_children,
+        IndexTemplate: _get_dimensionless_no_children,
+        expr.GetItemExpression: _get_dimensionless_with_dimensionless_children,
+        expr.ExternalFunctionExpression: _get_dimensionless_with_dimensionless_children,
+        expr.NPV_ExternalFunctionExpression: _get_dimensionless_with_dimensionless_children,
         expr.LinearExpression: _get_unit_for_linear_expression
     }
 
     unary_function_method_map = {
-        'log': _get_unitless_with_unitless_children,
-        'log10':_get_unitless_with_unitless_children,
-        'sin': _get_unitless_with_radians_child,
-        'cos': _get_unitless_with_radians_child,
-        'tan': _get_unitless_with_radians_child,
-        'sinh': _get_unitless_with_radians_child,
-        'cosh': _get_unitless_with_radians_child,
-        'tanh': _get_unitless_with_radians_child,
-        'asin': _get_radians_with_unitless_child,
-        'acos': _get_radians_with_unitless_child,
-        'atan': _get_radians_with_unitless_child,
-        'exp': _get_unitless_with_unitless_children,
+        'log': _get_dimensionless_with_dimensionless_children,
+        'log10':_get_dimensionless_with_dimensionless_children,
+        'sin': _get_dimensionless_with_radians_child,
+        'cos': _get_dimensionless_with_radians_child,
+        'tan': _get_dimensionless_with_radians_child,
+        'sinh': _get_dimensionless_with_radians_child,
+        'cosh': _get_dimensionless_with_radians_child,
+        'tanh': _get_dimensionless_with_radians_child,
+        'asin': _get_radians_with_dimensionless_child,
+        'acos': _get_radians_with_dimensionless_child,
+        'atan': _get_radians_with_dimensionless_child,
+        'exp': _get_dimensionless_with_dimensionless_children,
         'sqrt': _get_unit_sqrt,
-        'asinh': _get_radians_with_unitless_child,
-        'acosh': _get_radians_with_unitless_child,
-        'atanh': _get_radians_with_unitless_child,
+        'asinh': _get_radians_with_dimensionless_child,
+        'acosh': _get_radians_with_dimensionless_child,
+        'atanh': _get_radians_with_dimensionless_child,
         'ceil': _get_unit_for_single_child,
         'floor': _get_unit_for_single_child
     }

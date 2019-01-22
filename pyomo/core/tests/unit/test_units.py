@@ -142,7 +142,7 @@ class TestPyomoUnit(unittest.TestCase):
         if str_check is not None:
             self.assertEqual(str_check, str(get_units(x, pyomo_units_container)))
         else:
-            self.assertIsNone(get_units(x, pyomo_units_container))
+            self.assertEqual('', str(get_units(x, pyomo_units_container)))
 
     def _get_check_units_fail(self, x, pyomo_units_container, expected_type=None, expected_error=InconsistentUnitsError):
         if expected_type is not None:
@@ -300,11 +300,11 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_fail(exp(3.0*kg), uc, expr.NPV_UnaryFunctionExpression, UnitsError)
         # sqrt
         self._get_check_units_ok(sqrt(3.0*model.x), uc, None, expr.UnaryFunctionExpression)
-        self._get_check_units_ok(sqrt(3.0*model.x*kg**2), uc, 'sqrt(kg**2)', expr.UnaryFunctionExpression)
-        self._get_check_units_ok(sqrt(3.0*model.x*kg), uc, 'sqrt(kg)', expr.UnaryFunctionExpression)
+        self._get_check_units_ok(sqrt(3.0*model.x*kg**2), uc, 'kg**2**0.5', expr.UnaryFunctionExpression)
+        self._get_check_units_ok(sqrt(3.0*model.x*kg), uc, 'kg**0.5', expr.UnaryFunctionExpression)
         self._get_check_units_ok(sqrt(3.0*model.p), uc, None, expr.NPV_UnaryFunctionExpression)
-        self._get_check_units_ok(sqrt(3.0*model.p*kg**2), uc, 'sqrt(kg**2)', expr.NPV_UnaryFunctionExpression)
-        self._get_check_units_ok(sqrt(3.0*model.p*kg), uc, 'sqrt(kg)', expr.NPV_UnaryFunctionExpression)
+        self._get_check_units_ok(sqrt(3.0*model.p*kg**2), uc, 'kg**2**0.5', expr.NPV_UnaryFunctionExpression)
+        self._get_check_units_ok(sqrt(3.0*model.p*kg), uc, 'kg**0.5', expr.NPV_UnaryFunctionExpression)
         # asinh
         self._get_check_units_ok(asinh(3.0*model.x), uc, 'rad', expr.UnaryFunctionExpression)
         self._get_check_units_fail(asinh(3.0*kg*model.x), uc, expr.UnaryFunctionExpression, UnitsError)
