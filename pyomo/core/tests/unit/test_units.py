@@ -133,6 +133,10 @@ class TestPyomoUnit(unittest.TestCase):
         kg.pprint(ostream=buf)
         self.assertEqual('kg', buf.getvalue())
 
+        # test str representations for dimensionless
+        dless = uc.dimensionless
+        self.assertEqual('dimensionless', str(dless))
+
 
     def _get_check_units_ok(self, x, pyomo_units_container, str_check=None, expected_type=None):
         if expected_type is not None:
@@ -142,7 +146,8 @@ class TestPyomoUnit(unittest.TestCase):
         if str_check is not None:
             self.assertEqual(str_check, str(get_units(x, pyomo_units_container)))
         else:
-            self.assertEqual('', str(get_units(x, pyomo_units_container)))
+            # if str_check is None, then we expect the units to be None
+            self.assertEqual(None, get_units(x, pyomo_units_container))
 
     def _get_check_units_fail(self, x, pyomo_units_container, expected_type=None, expected_error=InconsistentUnitsError):
         if expected_type is not None:
@@ -382,7 +387,6 @@ class TestPyomoUnit(unittest.TestCase):
 
         linex2 = sum_product(model.vv, {'A': kg, 'B': m, 'C':kg}, index=['A', 'B', 'C'])
         self._get_check_units_fail(linex2, uc, expr.LinearExpression)
-
 
     def test_dimensionless(self):
         uc = PyomoUnitsContainer()

@@ -232,91 +232,12 @@ class _PyomoUnit(NumericValue):
     # __rdiv__ uses NumericValue base class implementation
     # __rtruediv__ uses NumericValue base class implementation
     # __rpow__ uses NumericValue base class implementation
-
-    # def __iadd__(self, other):
-    #     """
-    #     Incremental addition
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self += other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place addition (+=)."
-    #         % self.name)
-    #
-    # def __isub__(self, other):
-    #     """
-    #     Incremental subtraction
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self -= other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place subtraction (-=)."
-    #         % self.name)
-    #
-    # def __imul__(self, other):
-    #     """
-    #     Incremental multiplication
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self *= other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place multiplication (*=)."
-    #         % self.name)
-    #
-    # def __idiv__(self, other):
-    #     """
-    #     Incremental division
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self /= other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place division (/=)."
-    #         % self.name)
-    #
-    # def __itruediv__(self, other):
-    #     """
-    #     Incremental division (when __future__.division is in effect)
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self /= other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place division (/=)."
-    #         % self.name)
-    #
-    # def __ipow__(self, other):
-    #     """
-    #     Incremental power
-    #
-    #     This method is called when Python processes the statement::
-    #
-    #         self **= other
-    #     Raises:
-    #         TypeError
-    #     """
-    #     raise TypeError(
-    #         "The Pyomo Unit `%s' is read-only and cannot be the target of an in-place exponentiation (**=)."
-    #         % self.name)
-
+    # __iadd__ uses NumericValue base class implementation
+    # __isub__ uses NumericValue base class implementation
+    # __imul__ uses NumericValue base class implementation
+    # __idiv__ uses NumericValue base class implementation
+    # __itruediv__ uses NumericValue base class implementation
+    # __ipow__ uses NumericValue base class implementation
     # __neg__ uses NumericValue base class implementation
     # __pos__ uses NumericValue base class implementation
     # __add__ uses NumericValue base class implementation
@@ -325,7 +246,12 @@ class _PyomoUnit(NumericValue):
         """ Returns a string representing the unit """
 
         # The ~ returns the short form of the pint unit
-        return '{:!~s}'.format(self._pint_unit)
+        # if the unit IS the unit dimensionless, then pint returns ''
+        # which causes problems with some string codes that expect a name
+        retstr = '{:!~s}'.format(self._pint_unit)
+        if retstr == '':
+            retstr = 'dimensionless'
+        return retstr
 
     def to_string(self, verbose=None, labeler=None, smap=None,
                   compute_values=False):
@@ -420,6 +346,11 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         self._pint_ureg = self._pyomo_units_container._pint_registry()
         self._units_equivalence_tolerance = units_equivalence_tolerance
 
+    def _pint_unit_equivalent_to_dimensionless(self, pint_unit):
+        if pint_unit is None:
+            return True
+        return self._pint_units_equivalent(pint_unit, self._pint_ureg.dimensionless)
+
     def _pint_units_equivalent(self, lhs, rhs):
         """
         Check if two pint units are equivalent
@@ -436,9 +367,19 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             bool : True if they are equivalent, and False otherwise
         """
         if lhs == rhs:
+            # units are the same objects (or both None)
             return True
+        elif lhs is None:
+            # lhs is None, but rhs is not
+            # check if rhs is equivalent to dimensionless (e.g. radians)
+            return self._pint_units_equivalent(rhs, self._pint_ureg.dimensionless)
+        elif rhs is None:
+            # rhs is None, but lhs is not
+            # check if lhs is equivalent to dimensionless (e.g. radians)
+            return self._pint_units_equivalent(lhs, self._pint_ureg.dimensionless)
 
-        # Units are not the same actual objects.
+        # Units are not the same objects, and
+        # they are both not None
         # Use pint mechanisms to compare
         # First, convert to quantities
         lhsq = 1.0 * lhs
@@ -511,19 +452,29 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         # ToDo: This may be expensive for long summations and, in the case of reporting only, we may want to skip the checks
         term_unit_list = []
         if node.constant:
+            # we have a non-zero constant term, get its units
             const_units = _get_units_tuple(node.constant, self._pyomo_units_container)
             term_unit_list.append(const_units)
+
+        # go through the coefficients and variables
         assert len(node.linear_coefs) == len(node.linear_vars)
         for k,v in enumerate(node.linear_vars):
             c = node.linear_coefs[k]
             v_units = _get_units_tuple(v, self._pyomo_units_container)
             c_units = _get_units_tuple(c, self._pyomo_units_container)
-            if self._pint_units_equivalent(c_units[1], self._pint_ureg.dimensionless):
-                term_unit_list.append((v_units[0], v_units[1]))
-            elif self._pint_units_equivalent(v_units[1], self._pint_ureg.dimensionless):
-                term_unit_list.append((c_units[0], c_units[1]))
+            if c_units[1] is None and v_units[1] is None:
+                term_unit_list.append((None,None))
+            elif c_units[1] is None:
+                # v_units[1] is not None
+                term_unit_list.append(v_units)
+            elif v_units[1] is None:
+                # c_units[1] is not None
+                term_unit_list.append(c_units)
             else:
+                # both are not none
                 term_unit_list.append((c_units[0]*v_units[0], c_units[1]*v_units[1]))
+
+        assert len(term_unit_list) > 0
 
         # collected the units for all the terms, so now
         # verify that the pint units are equivalent from each
@@ -564,21 +515,15 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         for i in range(len(list_of_unit_tuples)):
             pyomo_unit_i = list_of_unit_tuples[i][0]
             pint_unit_i = list_of_unit_tuples[i][1]
-            if self._pint_units_equivalent(pint_unit_i, self._pint_ureg.dimensionless):
-                continue
-
-            # we have units
-            if pyomo_unit is None:
-                assert pint_unit is None
-                pyomo_unit = pyomo_unit_i
-                pint_unit = pint_unit_i
-            else:
-                pyomo_unit = pyomo_unit * pyomo_unit_i
-                pint_unit = pint_unit * pint_unit_i
-
-        if pyomo_unit is None:
-            assert pint_unit is None
-            return (self._pyomo_units_container.dimensionless, self._pint_ureg.dimensionless)
+            if pint_unit_i is not None:
+                assert pyomo_unit_i is not None
+                if pint_unit is None:
+                    assert pyomo_unit is None
+                    pint_unit = pint_unit_i
+                    pyomo_unit = pyomo_unit_i
+                else:
+                    pyomo_unit = pyomo_unit * pyomo_unit_i
+                    pint_unit = pint_unit * pint_unit_i
 
         return (pyomo_unit, pint_unit)
 
@@ -604,8 +549,9 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         pyomo_unit = list_of_unit_tuples[0][0]
         pint_unit = list_of_unit_tuples[0][1]
-        if self._pint_units_equivalent(pint_unit, self._pint_ureg.dimensionless):
-            return (pyomo_unit, pint_unit) # these are dimensionless
+        if pint_unit is None:
+            assert pyomo_unit is None
+            return (None, None)
         return (1.0/pyomo_unit, 1.0/pint_unit)
 
     def _get_unit_for_pow(self, node, list_of_unit_tuples):
@@ -637,24 +583,28 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         pint_unit_exponent = list_of_unit_tuples[1][1]
 
         # check to make sure that the exponent is dimensionless
-        if not self._pint_units_equivalent(pint_unit_exponent, self._pint_ureg.dimensionless):
+        if pint_unit_exponent is not None and \
+            not self._pint_unit_equivalent_to_dimensionless(pint_unit_exponent):
+            # unit is not dimensionless or equivalent to dimensionless (e.g. radians)
             raise UnitsError("Error in sub-expression: {}. "
                              "Exponents in a pow expression must be dimensionless."
                              "".format(node))
 
-        # if the base is dimensionless, return Dimensionless
-        if self._pint_units_equivalent(pint_unit_base, self._pint_ureg.dimensionless):
-            # base is dimensionless - does not matter if the exponent is fixed
+        # if the base is dimensionless, it does not matter if the exponent is fixed
+        if pint_unit_base is None or \
+            self._pint_unit_equivalent_to_dimensionless(pint_unit_base):
             return (pyomo_unit_base, pyomo_unit_exponent)
 
-        # Since the base is not dimensionless, make sure that the exponent
-        # is a fixed number
+        # the base is NOT dimensionless or equivalent to dimensionless
+        # need to make sure that the exponent is a fixed number
         exponent = node.args[1]
         if type(exponent) not in nonpyomo_leaf_types \
             and not (exponent.is_fixed() or exponent.is_constant()):
             raise UnitsError("The base of an exponent has units {}, but "
                              "the exponent is not a fixed numerical value."
                              "".format(str(list_of_unit_tuples[0][0])))
+
+        # base has units and exponent is fixed, return the appropriate unit
         exponent_value = value(exponent)
         pyomo_unit = pyomo_unit_base**exponent_value
         pint_unit = pint_unit_base**exponent_value
@@ -709,11 +659,11 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
                 and pint_unit, otherwise raises UnitError
         """
         for (pyomo_unit, pint_unit) in list_of_unit_tuples:
-            if not self._pint_units_equivalent(pint_unit, self._pint_ureg.dimensionless):
+            if not self._pint_unit_equivalent_to_dimensionless(pint_unit):
                 raise UnitsError('Expected dimensionless units in {}, but found {}.'.format(str(node), str(pyomo_unit)))
 
         # if we make it here, then all are equal to None
-        return (pyomo_unit, pint_unit)
+        return (None, None)
 
     def _get_dimensionless_no_children(self, node, list_of_unit_tuples):
         """
@@ -745,7 +695,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         #     raise UnitsError('Expected dimensionless units in {}, but found {}.'.format(str(node),
         #                         str(node.get_units())))
 
-        return (self._pyomo_units_container.dimensionless, self._pint_ureg.dimensionless)
+        return (None, None)
 
     def _get_unit_for_unary_function(self, node, list_of_unit_tuples):
         """
@@ -771,6 +721,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             node_func = self.unary_function_method_map[func_name]
             if node_func is not None:
                 return node_func(self, node, list_of_unit_tuples)
+
         raise TypeError('An unhandled unary function: {} was encountered while retrieving the'
                         ' units of expression {}'.format(func_name, str(node)))
 
@@ -837,10 +788,11 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         pint_unit = list_of_unit_tuples[0][1]
         ureg = self._pyomo_units_container._pint_registry()
         if not self._pint_units_equivalent(pint_unit, ureg.radians):
+            # Note the above check succeeds when pint_unit is dimensionless as well
             raise UnitsError('Expected radians in argument to function in expression {}, but found {}'.format(
                 str(node), str(pyomo_unit)))
 
-        return (self._pyomo_units_container.dimensionless, self._pint_ureg.dimensionless)
+        return (None, None)
 
     def _get_radians_with_dimensionless_child(self, node, list_of_unit_tuples):
         """
@@ -865,7 +817,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         pyomo_unit = list_of_unit_tuples[0][0]
         pint_unit = list_of_unit_tuples[0][1]
-        if not self._pint_units_equivalent(pint_unit, self._pint_ureg.dimensionless):
+        if not self._pint_unit_equivalent_to_dimensionless(pint_unit):
             raise UnitsError('Expected dimensionless argument to function in expression {},'
                              ' but found {}'.format(
                              str(node), str(pyomo_unit)))
@@ -892,8 +844,11 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         """
         assert len(list_of_unit_tuples) == 1
-        if self._pint_units_equivalent(list_of_unit_tuples[0][1], self._pint_ureg.dimensionless):
-            return (self._pyomo_units_container.dimensionless, self._pint_ureg.dimensionless)
+        pint_unit = list_of_unit_tuples[0][1]
+        if pint_unit is None:
+            return (None, None)
+
+        # units are not None
         return (list_of_unit_tuples[0][0]**0.5, list_of_unit_tuples[0][1]**0.5)
 
     node_type_method_map = {
@@ -950,10 +905,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
                 return (node, node._get_pint_unit())
 
             # ToDo: Check for Var or Param and return their units...
-
             # I have a leaf, but this is not a PyomoUnit - (treat as dimensionless)
-            dless = self._pyomo_units_container.dimensionless
-            return (dless, dless._pint_unit)
+            return (None, None)
 
         # not a leaf - get the appropriate function for type of the node
         node_type = type(node)
@@ -961,6 +914,15 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             node_func = self.node_type_method_map[node_type]
             if node_func is not None:
                 pyomo_unit, pint_unit = node_func(self, node, data)
+                if pint_unit is not None and \
+                    self._pint_unit_equivalent_to_dimensionless(pint_unit):
+                    # I want to return None instead of dimensionless
+                    # but radians are also equivalent to dimensionless
+                    # For now, this test works, but we need to find a better approach
+                    teststr = '{:!~s}'.format(pint_unit)
+                    if teststr == '':
+                        return (None, None)
+
                 return (pyomo_unit, pint_unit)
 
         raise TypeError('An unhandled expression node type: {} was encountered while retrieving the'
