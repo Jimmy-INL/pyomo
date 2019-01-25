@@ -15,8 +15,8 @@ from pyomo.environ import *
 from pyomo.core.base.template_expr import IndexTemplate
 from pyomo.core.expr import inequality
 import pyomo.core.expr.current as expr
-from pyomo.core.base.units import PyomoUnitsContainer, get_units, InconsistentUnitsError, \
-    UnitsError, check_units_consistency
+from pyomo.core.base.units import PyomoUnitsContainer, InconsistentUnitsError, \
+    UnitsError, _PyomoUnit
 from six import StringIO
 
 
@@ -24,6 +24,20 @@ def python_callback_function(arg1, arg2):
     return 42.0
 
 class TestPyomoUnit(unittest.TestCase):
+
+    def test_pint_expression_PyomoUnits(self):
+        m = ConcreteModel()
+        uc = PyomoUnitsContainer()
+        pint_kg = uc._pint_ureg.kg
+        pint_m = uc._pint_ureg.m
+
+        pu = _PyomoUnit(pint_kg/pint_m, uc._pint_ureg)
+        pu2 = _PyomoUnit(pint_kg/pint_m, uc._pint_ureg)
+
+        uc.check_units_consistency(1.0*pu+3.5/pu2)
+        print(pu)
+        assert False
+
 
     def test_PyomoUnit_NumericValueMethods(self):
         m = ConcreteModel()
@@ -56,63 +70,63 @@ class TestPyomoUnit(unittest.TestCase):
         with self.assertRaises(TypeError):
             x = int(kg)
 
-        self.assertTrue(check_units_consistency(kg < m.kg, uc))
-        self.assertTrue(check_units_consistency(kg > m.kg, uc))
-        self.assertTrue(check_units_consistency(kg <= m.kg, uc))
-        self.assertTrue(check_units_consistency(kg >= m.kg, uc))
-        self.assertTrue(check_units_consistency(kg == m.kg, uc))
-        self.assertTrue(check_units_consistency(kg + m.kg, uc))
-        self.assertTrue(check_units_consistency(kg - m.kg, uc))
+        self.assertTrue(uc.check_units_consistency(kg < m.kg, uc))
+        self.assertTrue(uc.check_units_consistency(kg > m.kg, uc))
+        self.assertTrue(uc.check_units_consistency(kg <= m.kg, uc))
+        self.assertTrue(uc.check_units_consistency(kg >= m.kg, uc))
+        self.assertTrue(uc.check_units_consistency(kg == m.kg, uc))
+        self.assertTrue(uc.check_units_consistency(kg + m.kg, uc))
+        self.assertTrue(uc.check_units_consistency(kg - m.kg, uc))
 
         with self.assertRaises(InconsistentUnitsError):
-            check_units_consistency(kg + 3, uc)
+            uc.check_units_consistency(kg + 3)
 
         with self.assertRaises(InconsistentUnitsError):
-            check_units_consistency(kg - 3, uc)
+            uc.check_units_consistency(kg - 3)
 
         with self.assertRaises(InconsistentUnitsError):
-            check_units_consistency(3 + kg, uc)
+            uc.check_units_consistency(3 + kg)
 
         with self.assertRaises(InconsistentUnitsError):
-            check_units_consistency(3 - kg, uc)
+            uc.check_units_consistency(3 - kg)
 
         # should not assert
         # check __mul__
-        self.assertTrue(str(get_units(kg*3, uc)), 'kg')
+        self.assertTrue(str(uc.get_units(kg*3)), 'kg')
         # check __rmul__
-        self.assertTrue(str(get_units(3*kg, uc)), 'kg')
+        self.assertTrue(str(uc.get_units(3*kg)), 'kg')
         # check div / truediv
-        self.assertTrue(str(get_units(kg/3.0, uc)), 'kg')
+        self.assertTrue(str(uc.get_units(kg/3.0)), 'kg')
         # check rdiv / rtruediv
-        self.assertTrue(str(get_units(3.0/kg, uc)), '(1/kg)')
+        self.assertTrue(str(uc.get_units(3.0/kg)), '(1/kg)')
         # check pow
-        self.assertTrue(str(get_units(kg**2, uc)), 'kg**2')
+        self.assertTrue(str(uc.get_units(kg**2)), 'kg**2')
 
         # check rpow
         x = 2 ** kg  # creation is allowed, only fails when units are "checked"
-        self.assertFalse(check_units_consistency(x, uc, allow_exceptions=False))
+        self.assertFalse(uc.check_units_consistency(x, allow_exceptions=False))
         with self.assertRaises(UnitsError):
-            check_units_consistency(x, uc)
+            uc.check_units_consistency(x)
 
         x = kg
         x += kg
-        self.assertTrue(str(get_units(x, uc)), 'kg')
+        self.assertTrue(str(uc.get_units(x)), 'kg')
 
         x = kg
         x -= 2.0*kg
-        self.assertTrue(str(get_units(x, uc)), 'kg')
+        self.assertTrue(str(uc.get_units(x)), 'kg')
 
         x = kg
         x *= 3
-        self.assertTrue(str(get_units(x, uc)), 'kg')
+        self.assertTrue(str(uc.get_units(x)), 'kg')
 
         x = kg
         x **= 3
-        self.assertTrue(str(get_units(x, uc)), 'kg**3')
+        self.assertTrue(str(uc.get_units(x)), 'kg**3')
 
-        self.assertTrue(str(get_units(-kg, uc)), 'kg')
-        self.assertTrue(str(get_units(+kg, uc)), 'kg')
-        self.assertTrue(str(get_units(abs(kg), uc)), 'kg')
+        self.assertTrue(str(uc.get_units(-kg)), 'kg')
+        self.assertTrue(str(uc.get_units(+kg)), 'kg')
+        self.assertTrue(str(uc.get_units(abs(kg))), 'kg')
 
         self.assertEqual(str(kg), 'kg')
         self.assertEqual(kg.to_string(), 'kg')
@@ -142,28 +156,28 @@ class TestPyomoUnit(unittest.TestCase):
         if expected_type is not None:
             self.assertEqual(expected_type, type(x))
 
-        self.assertTrue(check_units_consistency(x, pyomo_units_container))
+        self.assertTrue(pyomo_units_container.check_units_consistency(x))
         if str_check is not None:
-            self.assertEqual(str_check, str(get_units(x, pyomo_units_container)))
+            self.assertEqual(str_check, str(pyomo_units_container.get_units(x)))
         else:
             # if str_check is None, then we expect the units to be None
-            self.assertEqual(None, get_units(x, pyomo_units_container))
+            self.assertEqual(None, pyomo_units_container.get_units(x))
 
     def _get_check_units_fail(self, x, pyomo_units_container, expected_type=None, expected_error=InconsistentUnitsError):
         if expected_type is not None:
             self.assertEqual(expected_type, type(x))
 
-        self.assertFalse(check_units_consistency(x, pyomo_units_container, allow_exceptions=False))
+        self.assertFalse(pyomo_units_container.check_units_consistency(x, allow_exceptions=False))
         with self.assertRaises(expected_error):
-            check_units_consistency(x, pyomo_units_container, allow_exceptions=True)
+            pyomo_units_container.check_units_consistency(x, allow_exceptions=True)
 
         with self.assertRaises(expected_error):
             # allow_exceptions=True should also be the default
-            check_units_consistency(x, pyomo_units_container)
+            pyomo_units_container.check_units_consistency(x)
 
         # we also expect get_units to fail
         with self.assertRaises(expected_error):
-            get_units(x, pyomo_units_container)
+            pyomo_units_container.get_units(x)
 
     def test_get_check_units_on_all_expressions(self):
         # this method is going to test all the expression types that should work
@@ -394,6 +408,23 @@ class TestPyomoUnit(unittest.TestCase):
         dless = uc.dimensionless
         self._get_check_units_ok(2.0 == 2.0*dless, uc, None, expr.EqualityExpression)
 
+    def test_temperatures(self):
+        uc = PyomoUnitsContainer()
+        degC = uc.degC
+        delta_degC = uc.delta_degC
+        K = uc.kelvin
+        degF = uc.degF
+        delta_degF = uc.delta_degF
+        R = uc.rankine
+
+        self._get_check_units_ok(2.0*R + 3.0*R, uc, 'rankine', expr.NPV_SumExpression)
+        self._get_check_units_ok(2.0*K + 3.0*K, uc, 'K', expr.NPV_SumExpression)
+        self._get_check_units_ok(2.0*degC + 3.0*delta_degC + 1.0*degC, uc, 'celsius', expr.NPV_SumExpression)
+        self._get_check_units_ok(2.0*degF + 3.0*delta_degF, uc, 'degF', expr.NPV_SumExpression)
+        self._get_check_units_fail(2.0*degC + 3.0*degC, uc, expr.NPV_SumExpression)
+        self._get_check_units_fail(2.0*degF + 3.0*degF, uc, expr.NPV_SumExpression)
+
+
     def test_unit_creation(self):
         uc = PyomoUnitsContainer()
 
@@ -401,12 +432,12 @@ class TestPyomoUnit(unittest.TestCase):
 
         ff = uc.football_field
         yds = uc.yards
-        self.assertTrue(check_units_consistency(3.0*ff - 2.0*ff, uc))
+        self.assertTrue(uc.check_units_consistency(3.0*ff - 2.0*ff))
         # we do NOT support implicit conversion
-        self.assertFalse(check_units_consistency(3.0*ff - 2.0*yds, uc, allow_exceptions=False))
+        self.assertFalse(uc.check_units_consistency(3.0*ff - 2.0*yds, allow_exceptions=False))
 
         valid_expr = 3.0*ff * 100.0 * yds/ff == 300.0 * yds
-        self.assertTrue(check_units_consistency(valid_expr, uc))
+        self.assertTrue(uc.check_units_consistency(valid_expr, uc))
 
         # ToDo: test convert functionality once complete
 
@@ -415,4 +446,6 @@ class TestPyomoUnit(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    t = TestPyomoUnit()
+    t.test_temperatures()
+#    unittest.main()
