@@ -396,31 +396,10 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         return False
 
-    def _is_offset_temperature(self, pint_unit):
-        """ Returns True if the pint_unit is degC or degF (i.e. temperature
-        units with an offset scale
+    def _get_units_relational(self, node, list_of_unit_tuples):
         """
-        if self._pint_units_equivalent(pint_unit, self._pint_ureg.degC) or \
-            self._pint_units_equivalent(pint_unit, self._pint_ureg.degF):
-            return True
-        return False
-
-
-    *** THIS WILL WORK!!!
-    CRASH HERE
-    WONDER IF WE CAN USE PINT QUANTITIES TO DO ALL TESTING
-    - if we do this, the "easy" approach would be to never return
-      a PyomoUnit expression, but only pint_unit expressions
-    - Then we would not have to "build" the PyomoUnit expression
-    - We could us the pint unit for printing!
-    - ***** Major question - can a Pyomo unit contain a pint unit expression?
-
-
-    def _get_unit_for_equivalent_children(self, node, list_of_unit_tuples):
-        """
-        Return the unit expression corresponding to a operation where all
-        children should have the same units (e.g., equality, sum). This method
-        also checks to make sure the units are valid.
+        Test that the units are compatible for relational operations and
+        return the unit if True.
 
         Parameters
         ----------
@@ -435,22 +414,58 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         -------
             tuple : (PyomoUnit, pint unit)
         """
-        # ToDo: This may be expensive for long summations and, in the case of reporting only, we may want to skip the checks
         assert len(list_of_unit_tuples) > 0
 
-        # verify that the pint units are equivalent from each
-        # of the child nodes - assume that PyomoUnits are equivalent
+        # use pint to test compatibility
         pint_unit_0 = list_of_unit_tuples[0][1]
+        q0 = self._pint_ureg.Quantity(1.0, pint_unit_0)
         for i in range(1, len(list_of_unit_tuples)):
             pint_unit_i = list_of_unit_tuples[i][1]
-            if not self._pint_units_equivalent(pint_unit_0, pint_unit_i):
-                raise InconsistentUnitsError(pint_unit_0, pint_unit_i,
-                        'Error in units found in expression: {}'.format(str(node)))
+            qi = self._pint_ureg.Quantity(1.0, pint_unit_i)
+            try:
+                q0 == qi
+            except Exception as exc:
+                raise UnitsError('Error in units found in expression: {}\n{}'.format(str(node), str(exc)))
 
-        # checks were OK, return the first one in the list
-        return (list_of_unit_tuples[0][0], list_of_unit_tuples[0][1])
+        # checks were OK, return the appropriate units
+        pyomo_unit = getattr(self._pyomo_units_container, str(q0.units))
+        return (pyomo_unit, q0.units)
 
-    def _get_unit_for_sum(self, node, list_of_unit_tuples):
+    # def _get_unit_for_equivalent_children(self, node, list_of_unit_tuples):
+    #     """
+    #     Return the unit expression corresponding to a operation where all
+    #     children should have the same units (e.g., equality, sum). This method
+    #     also checks to make sure the units are valid.
+    #
+    #     Parameters
+    #     ----------
+    #     node : Pyomo expression node
+    #         The parent node of the children
+    #
+    #     list_of_unit_tuples : list
+    #        This is a list of tuples (one for each of the children) where each tuple
+    #        is a PyomoUnit, pint unit pair
+    #
+    #     Returns
+    #     -------
+    #         tuple : (PyomoUnit, pint unit)
+    #     """
+    #     # ToDo: This may be expensive for long summations and, in the case of reporting only, we may want to skip the checks
+    #     assert len(list_of_unit_tuples) > 0
+    #
+    #     # verify that the pint units are equivalent from each
+    #     # of the child nodes - assume that PyomoUnits are equivalent
+    #     pint_unit_0 = list_of_unit_tuples[0][1]
+    #     for i in range(1, len(list_of_unit_tuples)):
+    #         pint_unit_i = list_of_unit_tuples[i][1]
+    #         if not self._pint_units_equivalent(pint_unit_0, pint_unit_i):
+    #             raise InconsistentUnitsError(pint_unit_0, pint_unit_i,
+    #                     'Error in units found in expression: {}'.format(str(node)))
+    #
+    #     # checks were OK, return the first one in the list
+    #     return (list_of_unit_tuples[0][0], list_of_unit_tuples[0][1])
+
+    def _get_unit_like_sum(self, node, list_of_unit_tuples):
         """
         Return the unit expression corresponding to a summation operation. This method
         also checks to make sure the units are valid.
@@ -917,11 +932,11 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         return (list_of_unit_tuples[0][0]**0.5, list_of_unit_tuples[0][1]**0.5)
 
     node_type_method_map = {
-        expr.EqualityExpression: _get_unit_for_equivalent_children,
-        expr.InequalityExpression: _get_unit_for_equivalent_children,
-        expr.RangedExpression: _get_unit_for_equivalent_children,
-        expr.SumExpression: _get_unit_for_sum,
-        expr.NPV_SumExpression: _get_unit_for_sum,
+        expr.EqualityExpression: _get_units_relational,
+        expr.InequalityExpression: _get_units_relational,
+        expr.RangedExpression: _get_units_relational,
+        expr.SumExpression: _get_unit_like_sum,
+        expr.NPV_SumExpression: _get_unit_like_sum,
         expr.ProductExpression: _get_unit_for_product,
         expr.MonomialTermExpression: _get_unit_for_product,
         expr.NPV_ProductExpression: _get_unit_for_product,
