@@ -34,9 +34,10 @@ class TestPyomoUnit(unittest.TestCase):
         pu = _PyomoUnit(pint_kg/pint_m, uc._pint_ureg)
         pu2 = _PyomoUnit(pint_kg/pint_m, uc._pint_ureg)
 
-        uc.check_units_consistency(1.0*pu+3.5/pu2)
-        print(pu)
-        assert False
+        with self.assertRaises(InconsistentUnitsError):
+            uc.check_units_consistency(1.0*pu+3.5/pu2)
+
+        self.assertTrue(uc.check_units_consistency(1.0*pu+3.5*pu2))
 
 
     def test_PyomoUnit_NumericValueMethods(self):
@@ -98,7 +99,7 @@ class TestPyomoUnit(unittest.TestCase):
         # check div / truediv
         self.assertTrue(str(uc.get_units(kg/3.0)), 'kg')
         # check rdiv / rtruediv
-        self.assertTrue(str(uc.get_units(3.0/kg)), '(1/kg)')
+        self.assertTrue(str(uc.get_units(3.0/kg)), '1 / kg)')
         # check pow
         self.assertTrue(str(uc.get_units(kg**2)), 'kg**2')
 
@@ -219,25 +220,25 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_fail(3.0*kg + 1.0*kg + 2.0*m, uc, expr.NPV_SumExpression)
 
         # test ProductExpression, NPV_ProductExpression
-        self._get_check_units_ok(model.x*kg * model.y*m, uc, 'kg*m', expr.ProductExpression)
-        self._get_check_units_ok(3.0*kg * 1.0*m, uc, 'kg*m', expr.NPV_ProductExpression)
-        self._get_check_units_ok(3.0*kg*m, uc, 'kg*m', expr.NPV_ProductExpression)
+        self._get_check_units_ok(model.x*kg * model.y*m, uc, 'kg * m', expr.ProductExpression)
+        self._get_check_units_ok(3.0*kg * 1.0*m, uc, 'kg * m', expr.NPV_ProductExpression)
+        self._get_check_units_ok(3.0*kg*m, uc, 'kg * m', expr.NPV_ProductExpression)
         # I don't think that there are combinations that can "fail" for products
 
         # test MonomialTermExpression
         self._get_check_units_ok(model.x*kg, uc, 'kg', expr.MonomialTermExpression)
 
         # test ReciprocalExpression, NPV_ReciprocalExpression
-        self._get_check_units_ok(1.0/(model.x*kg), uc, '(1/kg)', expr.ReciprocalExpression)
-        self._get_check_units_ok(1.0/kg, uc, '(1/kg)', expr.NPV_ReciprocalExpression)
+        self._get_check_units_ok(1.0/(model.x*kg), uc, '1 / kg', expr.ReciprocalExpression)
+        self._get_check_units_ok(1.0/kg, uc, '1 / kg', expr.NPV_ReciprocalExpression)
         # I don't think that there are combinations that can "fail" for products
 
         # test PowExpression, NPV_PowExpression
         # ToDo: fix the str representation to combine the powers or the expression system
-        self._get_check_units_ok((model.x*kg**2)**3, uc, 'kg**2**3', expr.PowExpression) # would want this to be kg**6
+        self._get_check_units_ok((model.x*kg**2)**3, uc, 'kg ** 6', expr.PowExpression) # would want this to be kg**6
         self._get_check_units_fail(kg**model.x, uc, expr.PowExpression, UnitsError)
         self._get_check_units_fail(model.x**kg, uc, expr.PowExpression, UnitsError)
-        self._get_check_units_ok(kg**2, uc, 'kg**2', expr.NPV_PowExpression)
+        self._get_check_units_ok(kg**2, uc, 'kg ** 2', expr.NPV_PowExpression)
         self._get_check_units_fail(3.0**kg, uc, expr.NPV_PowExpression, UnitsError)
 
         # test NegationExpression, NPV_NegationExpression
@@ -319,11 +320,11 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_fail(exp(3.0*kg), uc, expr.NPV_UnaryFunctionExpression, UnitsError)
         # sqrt
         self._get_check_units_ok(sqrt(3.0*model.x), uc, None, expr.UnaryFunctionExpression)
-        self._get_check_units_ok(sqrt(3.0*model.x*kg**2), uc, 'kg**2**0.5', expr.UnaryFunctionExpression)
-        self._get_check_units_ok(sqrt(3.0*model.x*kg), uc, 'kg**0.5', expr.UnaryFunctionExpression)
+        self._get_check_units_ok(sqrt(3.0*model.x*kg**2), uc, 'kg', expr.UnaryFunctionExpression)
+        self._get_check_units_ok(sqrt(3.0*model.x*kg), uc, 'kg ** 0.5', expr.UnaryFunctionExpression)
         self._get_check_units_ok(sqrt(3.0*model.p), uc, None, expr.NPV_UnaryFunctionExpression)
-        self._get_check_units_ok(sqrt(3.0*model.p*kg**2), uc, 'kg**2**0.5', expr.NPV_UnaryFunctionExpression)
-        self._get_check_units_ok(sqrt(3.0*model.p*kg), uc, 'kg**0.5', expr.NPV_UnaryFunctionExpression)
+        self._get_check_units_ok(sqrt(3.0*model.p*kg**2), uc, 'kg', expr.NPV_UnaryFunctionExpression)
+        self._get_check_units_ok(sqrt(3.0*model.p*kg), uc, 'kg ** 0.5', expr.NPV_UnaryFunctionExpression)
         # asinh
         self._get_check_units_ok(asinh(3.0*model.x), uc, 'rad', expr.UnaryFunctionExpression)
         self._get_check_units_fail(asinh(3.0*kg*model.x), uc, expr.UnaryFunctionExpression, UnitsError)
@@ -410,42 +411,63 @@ class TestPyomoUnit(unittest.TestCase):
 
     def test_temperatures(self):
         uc = PyomoUnitsContainer()
-        degC = uc.degC
+
+        # Pyomo units framework disallows "offset" units
+        with self.assertRaises(UnitsError):
+            degC = uc.celsius
+        with self.assertRaises(UnitsError):
+            degF = uc.degF
+
+        # although we test delta versions here, users should not use these and
+        # use absolute units instead
         delta_degC = uc.delta_degC
         K = uc.kelvin
-        degF = uc.degF
         delta_degF = uc.delta_degF
         R = uc.rankine
 
         self._get_check_units_ok(2.0*R + 3.0*R, uc, 'rankine', expr.NPV_SumExpression)
         self._get_check_units_ok(2.0*K + 3.0*K, uc, 'K', expr.NPV_SumExpression)
-        self._get_check_units_ok(2.0*degC + 3.0*delta_degC + 1.0*degC, uc, 'celsius', expr.NPV_SumExpression)
-        self._get_check_units_ok(2.0*degF + 3.0*delta_degF, uc, 'degF', expr.NPV_SumExpression)
-        self._get_check_units_fail(2.0*degC + 3.0*degC, uc, expr.NPV_SumExpression)
-        self._get_check_units_fail(2.0*degF + 3.0*degF, uc, expr.NPV_SumExpression)
 
+        ex = 2.0*delta_degC + 3.0*delta_degC + 1.0*delta_degC
+        self.assertTrue(type(ex), expr.NPV_SumExpression)
+        self.assertTrue(uc.check_units_consistency(ex))
 
-    def test_unit_creation(self):
-        uc = PyomoUnitsContainer()
+        ex = 2.0*delta_degF + 3.0*delta_degF
+        self.assertTrue(type(ex), expr.NPV_SumExpression)
+        self.assertTrue(uc.check_units_consistency(ex))
 
-        uc.create_new_unit('football_field', 'yards', 100.0)
+        self._get_check_units_fail(2.0*K + 3.0*R, uc, expr.NPV_SumExpression)
+        self._get_check_units_fail(2.0*delta_degC + 3.0*delta_degF, uc, expr.NPV_SumExpression)
 
-        ff = uc.football_field
-        yds = uc.yards
-        self.assertTrue(uc.check_units_consistency(3.0*ff - 2.0*ff))
-        # we do NOT support implicit conversion
-        self.assertFalse(uc.check_units_consistency(3.0*ff - 2.0*yds, allow_exceptions=False))
+    def test_module_example(self):
+        from pyomo.core.base.units import units_container as uc
+        model = ConcreteModel()
+        model.acc = Var()
+        model.obj = Objective(expr=(model.acc*uc.m/uc.s**2 - 9.81*uc.m/uc.s**2)**2)
+        # print(uc.get_units(model.obj.expr))
+        self.assertEqual('m ** 2 / s ** 4', str(uc.get_units(model.obj.expr)))
 
-        valid_expr = 3.0*ff * 100.0 * yds/ff == 300.0 * yds
-        self.assertTrue(uc.check_units_consistency(valid_expr, uc))
-
-        # ToDo: test convert functionality once complete
-
-    def test_dimension_creation(self):
-        pass
+    # def test_unit_creation(self):
+    #     uc = PyomoUnitsContainer()
+    #
+    #     uc.create_new_unit('football_field', 'yards', 100.0)
+    #
+    #     ff = uc.football_field
+    #     yds = uc.yards
+    #     self.assertTrue(uc.check_units_consistency(3.0*ff - 2.0*ff))
+    #     # we do NOT support implicit conversion
+    #     self.assertFalse(uc.check_units_consistency(3.0*ff - 2.0*yds, allow_exceptions=False))
+    #
+    #     valid_expr = 3.0*ff * 100.0 * yds/ff == 300.0 * yds
+    #     self.assertTrue(uc.check_units_consistency(valid_expr, uc))
+    #
+    #     # ToDo: test convert functionality once complete
+    #
+    # def test_dimension_creation(self):
+    #     pass
 
 
 if __name__ == "__main__":
-    t = TestPyomoUnit()
-    t.test_temperatures()
-#    unittest.main()
+    # t = TestPyomoUnit()
+    # t.test_temperatures()
+    unittest.main()
