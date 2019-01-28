@@ -7,7 +7,7 @@
 #  This software is distributed under the BSD License.
 #  _________________________________________________________________________
 
-"""Pyomo Units Module
+"""Pyomo Units Container Module
 
 .. warning:: This module is in beta and is not yet complete.
 
@@ -15,30 +15,41 @@ This module provides support for including units within Pyomo expressions, and p
 methods for checking the consistency of units within those expresions.
 
 To use this package within your Pyomo model, you first need an instance of a PyomoUnitsContainer.
-You can use the module level instance called units_container or you can create your own instance.
-With this object you can then use the pre-defined units or even create new units.
+You can use the module level instance called `units` and use the pre-defined units in expressions or
+components.
 
 Examples:
-    To use a unit within an expression, simply reference the unit
-    as a field on the units manager.
+    To use a unit within an expression, simply reference the desired unit as an attribute on the
+    module singleton `units`.
 
-        >>> from pyomo.environ import *
-        >>> from pyomo.core.base.units import units_container as uc
+        >>> from pyomo.environ import ConcreteModel, Var, Objective, units # import components and 'units' instance
         >>> model = ConcreteModel()
         >>> model.acc = Var()
-        >>> model.obj = Objective(expr=(model.acc*uc.m/uc.s**2 - 9.81*uc.m/uc.s**2)**2)
-        >>> print(uc.get_units(model.obj.expr))
+        >>> model.obj = Objective(expr=(model.acc*units.m/units.s**2 - 9.81*units.m/units.s**2)**2)
+        >>> print(units.get_units(model.obj.expr))
         m ** 2 / s ** 4
 
+.. note:: This module has a module level instance of a PyomoUnitsContainer called `units` that you
+         should use for creating, retreiving, and checking units
+
+.. note:: This is a work in progress. Once the components units implementations are complete, the units will eventually
+          work similar to the following.
+
+          >>> from pyomo.environ import ConcreteModel, Var, Objective, units
+          >>> model = ConcreteModel()
+          >>> model.x = Var(units=units.kg/units.m)
+          >>> model.obj = Objective(expr=(model.x - 97.2*units.kg/units.m)**2)
+          >>>
+
 Notes:
-    * The implementation is currently based on the `pint <http://pint.readthedocs.io>`
+    * The implementation is currently based on the `pint <http://pint.readthedocs.io>`_
       package and supports all the units that are supported by pint.
     * Currently, we do NOT test units of unary functions that include native data types
       e.g. explicit float (3.0) since these are removed by the expression system
       before getting to the code that checks the units.
 
 ToDos:
-    * fix documentation to include proper docstring references to classes/methods, etc.
+    * cleanup terminology with unitless / dimensionless
     * cleanup terminology with unitless / dimensionless
     * create a new pint unit definition file (and load from that file)
       since the precision in pint is insufficient for 1e-8 constraint tolerances
@@ -50,19 +61,9 @@ ToDos:
     * Add units capabilities to Var and Param
     * Investigate issues surrounding absolute and relative temperatures (delta units)
     * Implement external function interface that specifies units for the arguments and the function itself
+
 """
 
-# Note: This is the plan for how the units will eventually work when complete
-# Examples:
-#     To use a unit within an expression, simply reference the unit
-#     as a field on the units manager.
-#
-#         >>> from pyomo.environ import *
-#         >>> from pyomo.units import units_manager as um
-#         >>> model = ConcreteModel()
-#         >>> model.x = Var(units=um.kg)
-#         >>> model.obj = Objective(expr=(model.x - 97.2*um.kg)**2)
-#
 
 from pyomo.core.expr.numvalue import NumericValue, nonpyomo_leaf_types, value
 from pyomo.core.base.template_expr import IndexTemplate
@@ -85,7 +86,7 @@ class InconsistentUnitsError(UnitsError):
     """
     An exception indicating that inconsistent units are present on an expression.
 
-    E.g., x == y, where x is in units of um.kg and y is in units of um.meter
+    E.g., x == y, where x is in units of units.kg and y is in units of units.meter
     """
     def __init__(self, exp1, exp2, msg):
         msg = '{}: {} not compatible with {}.'.format(str(msg), str(exp1), str(exp2))
@@ -97,7 +98,7 @@ class _PyomoUnit(NumericValue):
 
     Users should not create instances of _PyomoUnit directly, but rather access
     units as attributes on an instance of a :class:`PyomoUnitsContainer`.
-    This module contains a global PyomoUnitContainer :py:data:`units_container`.
+    This module contains a global PyomoUnitContainer :py:data:`units`.
     See module documentation for more information.
     """
     def __init__(self, pint_unit, pint_registry):
@@ -119,9 +120,14 @@ class _PyomoUnit(NumericValue):
 
     def getname(self, fully_qualified=False, name_buffer=None):
         """
-        Indicates if the NumericValue is constant and can be replaced with a plain old number
+        Returns the name of this unit as a string.
         Overloaded from: :py:class:`NumericValue`. See this class for a description of the
         arguments. The value of these arguments are ignored here.
+
+        Returns
+        -------
+        : str
+           Returns the name of the unit
         """
         return str(self)
 
@@ -265,8 +271,8 @@ class _PyomoUnit(NumericValue):
         """ Returns a string representing the unit """
 
         # The ~ returns the short form of the pint unit
-        # if the unit IS the unit dimensionless, then pint returns ''
-        # which causes problems with some string codes that expect a name
+        # if the unit is an instance of the unit 'dimensionless', then pint returns ''
+        # which causes problems with some string processing in Pyomo that expects a name
         retstr = '{:~}'.format(self._pint_unit)
         if retstr == '':
             retstr = 'dimensionless'
@@ -277,7 +283,7 @@ class _PyomoUnit(NumericValue):
         """
         Return a string representation of the expression tree.
 
-        See documentation on NumericValue
+        See documentation on :py:class:`NumericValue`
 
         Returns
         -------
@@ -301,12 +307,18 @@ class _PyomoUnit(NumericValue):
         Returns
         -------
         : bool
-           Returns whether or not the object is "empt"
+           Returns whether or not the object is "empty"
         """
         return True
 
     def __call__(self, exception=True):
-        """Unit is treated as a constant value, and this method always returns 1.0"""
+        """Unit is treated as a constant value, and this method always returns 1.0
+
+        Returns
+        -------
+        : float
+           Returns 1.0
+        """
         return 1.0
 
     def pprint(self, ostream=None, verbose=False):
@@ -321,7 +333,7 @@ class _PyomoUnit(NumericValue):
         # else:
         #     ostream.write('{:!~s}'.format(self._pint_unit))
 
-def is_leaf(expr):
+def _is_leaf(expr):
     """
     Returns True if the object in expr is a leaf node (i.e. it has
     no args method with children)
@@ -362,7 +374,6 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
         Notes
         -----
-
         This class inherits from the :class:`StreamBasedExpressionVisitor` to implement
         a walker that returns the pyomo units and pint units corresponding to an
         expression.
@@ -377,6 +388,21 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         self._units_equivalence_tolerance = units_equivalence_tolerance
 
     def _pint_unit_equivalent_to_dimensionless(self, pint_unit):
+        """
+        Check if a pint unit is equivalent to 'dimensionless' (this is true if it
+        is either None or 'dimensionless' (or even radians)
+
+        Parameters
+        ----------
+        pint_unit : pint unit
+           The pint unit you want to check
+
+        Returns
+        -------
+        : bool
+           Returns True if pint_unit is equivalent to dimensionless units.
+
+        """
         if pint_unit is None:
             return True
         return self._pint_units_equivalent(pint_unit, self._pint_ureg.dimensionless)
@@ -402,17 +428,15 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
             return True
         elif lhs is None:
             # lhs is None, but rhs is not
-            # check if rhs is equivalent to dimensionless (e.g. radians)
+            # check if rhs is equivalent to dimensionless (e.g. dimensionless or radians)
             return self._pint_unit_equivalent_to_dimensionless(rhs)
         elif rhs is None:
             # rhs is None, but lhs is not
-            # check if lhs is equivalent to dimensionless (e.g. radians)
+            # check if lhs is equivalent to dimensionless (e.g. dimensionless or radians)
             return self._pint_unit_equivalent_to_dimensionless(lhs)
 
-        # Units are not the same objects, and
-        # they are both not None
-        # Use pint mechanisms to compare
-        # First, convert to quantities
+        # Units are not the same objects, and they are both not None
+        # Now, use pint mechanisms to check by converting to Quantity objects
         lhsq = (1.0 * lhs).to_base_units()
         rhsq = (1.0 * rhs).to_base_units()
 
@@ -424,8 +448,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_units_relational(self, node, list_of_unit_tuples):
         """
-        Test that the units are compatible for relational operations and
-        return the unit if True.
+        Return (and test) the units corresponding to a relational expression node
+        in the expression tree.
 
         Parameters
         ----------
@@ -455,9 +479,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_for_equivalent_children(self, node, list_of_unit_tuples):
         """
-        Return the unit expression corresponding to a operation where all
-        children should have the same units (e.g., equality, sum). This method
-        also checks to make sure the units are valid.
+        Return (and test) the units corresponding to an expression node in the
+        expression tree where all children should have the same units (e.g. sum).
 
         Parameters
         ----------
@@ -490,8 +513,10 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_for_linear_expression(self, node, list_of_unit_tuples):
         """
-        Return the unit expression corresponding to a node of LinearExpression
-        type. This is a special node since it does not use "args" the way
+        Return (and test) the units corresponding to a :py:class:`LinearExpression` node
+        in the expression tree.
+
+        This is a special node since it does not use "args" the way
         other expression types do. Because of this, the StreamBasedExpressionVisitor
         does not pick up on the "children", and list_of_unit_tuples is empty.
         Therefore, we implement the recursion into coeffs and vars ourselves.
@@ -555,8 +580,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_for_product(self, node, list_of_unit_tuples):
         """
-        Return the unit expression corresonding to a product
-        of the child data in list_of_unit_tuples
+        Return (and test) the units corresponding to a product expression node
+        in the expression tree.
 
         Parameters
         ----------
@@ -592,8 +617,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_for_reciprocal(self, node, list_of_unit_tuples):
         """
-        Return the unit expression corresponding to a reciprocal
-        of the child data in list_of_unit_tuples
+        Return (and test) the units corresponding to a reciprocal expression node
+        in the expression tree.
 
         Parameters
         ----------
@@ -619,8 +644,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_for_pow(self, node, list_of_unit_tuples):
         """
-        Return the unit expression corresponding to a pow expression
-        with the base and exponent in list_of_unit_tuples
+        Return (and test) the units corresponding to a pow expression node
+        in the expression tree.
 
         Parameters
         ----------
@@ -645,20 +670,20 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         pyomo_unit_exponent = list_of_unit_tuples[1][0]
         pint_unit_exponent = list_of_unit_tuples[1][1]
 
-        # check to make sure that the exponent is dimensionless
+        # check to make sure that the exponent is unitless or dimensionless
         if pint_unit_exponent is not None and \
             not self._pint_unit_equivalent_to_dimensionless(pint_unit_exponent):
-            # unit is not dimensionless or equivalent to dimensionless (e.g. radians)
+            # unit is not unitless, dimensionless, or equivalent to dimensionless (e.g. radians)
             raise UnitsError("Error in sub-expression: {}. "
                              "Exponents in a pow expression must be dimensionless."
                              "".format(node))
 
-        # if the base is dimensionless, it does not matter if the exponent is fixed
+        # if the base is unitless or dimensionless, it does not matter if the exponent is fixed
         if pint_unit_base is None or \
             self._pint_unit_equivalent_to_dimensionless(pint_unit_base):
             return (pyomo_unit_base, pyomo_unit_exponent)
 
-        # the base is NOT dimensionless or equivalent to dimensionless
+        # the base is NOT (None, dimensionless, or equivalent to dimensionless)
         # need to make sure that the exponent is a fixed number
         exponent = node.args[1]
         if type(exponent) not in nonpyomo_leaf_types \
@@ -676,9 +701,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_for_single_child(self, node, list_of_unit_tuples):
         """
-        Return the unit expression corresponding to the (single)
-        child in the list_of_unit_tuples. This is intended for unary nodes
-        in the expression tree.
+        Return (and test) the units corresponding to a unary operation (e.g. negation)
+        expression node in the expression tree.
 
         Parameters
         ----------
@@ -701,8 +725,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_dimensionless_with_dimensionless_children(self, node, list_of_unit_tuples):
         """
-        Check to make sure that any child arguments are dimensionless (for functions like exp())
-        and return dimensionless if successful. Although odd that this does not just return
+        Check to make sure that any child arguments are unitless / dimensionless (for functions like exp())
+        and return (None, None) if successful. Although odd that this does not just return
         a boolean, it is done this way to match the signature of the other methods used to get
         units for expressions.
 
@@ -721,7 +745,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         """
         for (pyomo_unit, pint_unit) in list_of_unit_tuples:
             if not self._pint_unit_equivalent_to_dimensionless(pint_unit):
-                raise UnitsError('Expected dimensionless units in {}, but found {}.'.format(str(node), str(pyomo_unit)))
+                raise UnitsError('Expected no units or dimensionless units in {}, but found {}.'.format(str(node), str(pyomo_unit)))
 
         # if we make it here, then all are equal to None
         return (None, None)
@@ -729,8 +753,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
     def _get_dimensionless_no_children(self, node, list_of_unit_tuples):
         """
         Check to make sure the length of list_of_unit_tuples is zero, and returns
-        dimensionless units of PyomoUnit and pint unit types.
-        Used for leaf nodes that should not have any units.
+        (None, None) to indicate unitless. Used for leaf nodes that should not have any units.
 
         Parameters
         ----------
@@ -746,7 +769,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         : tuple (None, None)
         """
         assert len(list_of_unit_tuples) == 0
-        assert is_leaf(node)
+        assert _is_leaf(node)
+        assert type(node) != _PyomoUnit
 
         # # check that the leaf does not have any units
         # # ToDo: Leave this commented code here since this "might" be similar to the planned mechanism for getting units from Pyomo component leaves
@@ -758,7 +782,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_for_unary_function(self, node, list_of_unit_tuples):
         """
-        Get the units for a unary function. Checks that the list_of_unit_tuples is of length 1
+        Return (and test) the units corresponding to a unary function expression node
+        in the expression tree. Checks that the list_of_unit_tuples is of length 1
         and calls the appropriate method from the unary function method map.
 
         Parameters
@@ -786,9 +811,10 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_for_expr_if(self, node, list_of_unit_tuples):
         """
-        Return the unit expression corresponding to an Expr_if expression. The
-        _if relational expression should be consistent, and _then/_else should be
-        the same units. Also checks to make sure length of list_of_unit_tuples is 3
+        Return (and test) the units corresponding to an Expr_if expression node
+        in the expression tree. The _if relational expression is validated and
+        the _then/_else are checked to ensure they have the same units. Also checks
+        to make sure length of list_of_unit_tuples is 3
 
         Parameters
         ----------
@@ -821,9 +847,10 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_dimensionless_with_radians_child(self, node, list_of_unit_tuples):
         """
-        Get the units for trig functions. Checks that the length of list_of_unit_tuples is 1
+        Return (and test) the units corresponding to a trig function expression node
+        in the expression tree. Checks that the length of list_of_unit_tuples is 1
         and that the units of that child expression are unitless or radians and
-        returns (None, None) for the units
+        returns (None, None) for the units.
 
         Parameters
         ----------
@@ -837,8 +864,6 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
         Returns
         -------
         : tuple (None, None)
-           if successful, returns dimensionless for both pyomo_unit
-           and pint_unit, otherwise raises UnitError
         """
         assert len(list_of_unit_tuples) == 1
 
@@ -859,7 +884,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_radians_with_dimensionless_child(self, node, list_of_unit_tuples):
         """
-        Get the units for inverse trig functions. Checks that the length of list_of_unit_tuples is 1
+        Return (and test) the units corresponding to an inverse trig expression node
+        in the expression tree. Checks that the length of list_of_unit_tuples is 1
         and that the child argument is dimensionless, and returns radians
 
         Parameters
@@ -889,7 +915,8 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
 
     def _get_unit_sqrt(self, node, list_of_unit_tuples):
         """
-        Return the units for sqrt. Checks that the length of list_of_unit_tuples is one.
+        Return (and test) the units corresponding to a sqrt expression node
+        in the expression tree. Checks that the length of list_of_unit_tuples is one.
 
         Parameters
         ----------
@@ -963,7 +990,7 @@ class _UnitExtractionVisitor(expr.StreamBasedExpressionVisitor):
     def exitNode(self, node, data):
         """ Callback for :class:`pyomo.core.current.StreamBasedExpressionVisitor`. This
         method is called when moving back up the tree in a depth first search."""
-        if is_leaf(node):
+        if _is_leaf(node):
             if isinstance(node, _PyomoUnit):
                 return (node, node._get_pint_unit())
 
@@ -996,10 +1023,11 @@ class PyomoUnitsContainer(object):
     """Class that is used to create and contain units in Pyomo.
 
     This is the class that is used to create, contain, and interact with units in Pyomo.
-    The module (:mod:`pyomo.core.base.units`) also contains a module attribute called units_container that is
-    a singleton instance of a PyomoUnitsContainer. Once a unit is created in the container,
-    the unit can be used in expressions.
-    For an overview of the usage of this class, see the module documentation (:mod:`pyomo.core.base.units`)
+    The module (:mod:`pyomo.core.base.units_container`) also contains a module attribute
+    called `units` that is a singleton instance of a PyomoUnitsContainer. This singleton should be
+    used instead of creating your own instance of a :py:class:`PyomoUnitsContainer`.
+    For an overview of the usage of this class, see the module documentation
+    (:mod:`pyomo.core.base.units_container`)
 
     This class is based on the "pint" module. Documentation for available units can be found
     at the following url: https://github.com/hgrecco/pint/blob/master/pint/default_en.txt
@@ -1007,16 +1035,13 @@ class PyomoUnitsContainer(object):
     Note: Pre-defined units can be accessed through attributes on the PyomoUnitsContainer
     class; however, these attributes are created dynamically through the __getattr__ method,
     and are not present on the class until they are requested.
-
-    This class also supports creation of new units and even new dimensions. These are advanced
-    features that should not be needed often. Check to see if the unit already exists before
-    trying to create new units.
     """
     def __init__(self):
         """Create a PyomoUnitsContainer instance. """
         self._pint_ureg = pint.UnitRegistry()
 
     def _pint_registry(self):
+        """ Return the pint.UnitsRegistry instance corresponding to this container. """
         return self._pint_ureg
 
     def __getattr__(self, item):
@@ -1119,6 +1144,18 @@ class PyomoUnitsContainer(object):
     #     self._pint_ureg.define(defn_str)
 
     def _get_units_tuple(self, expr):
+        """
+        Return a tuple of the PyomoUnit, and pint_unit corresponding to the expression in expr.
+
+        Parameters
+        ----------
+        expr : Pyomo expression
+           the input expression for extracting units
+
+        Returns
+        -------
+        : tuple (PyomoUnit, pint unit)
+        """
         pyomo_unit, pint_unit = _UnitExtractionVisitor(self).walk_expression(expr=expr)
 
         if pint_unit is not None:
@@ -1127,27 +1164,6 @@ class PyomoUnitsContainer(object):
                 pint_unit = pint_unit.units
             return (_PyomoUnit(pint_unit, self._pint_registry()), pint_unit)
         return (None, None)
-
-    def check_units_equivalent(self, expr1, expr2):
-        """
-        Check if the units associated with each of the expressions are equivalent.
-
-        Parameters
-        ----------
-        expr1 : Pyomo expression
-           The first expression.
-        expr2 : Pyomo expression
-           The second expression.
-
-        Returns
-        -------
-        : bool
-           True if the expressions have e quivalent units, False otherwise.
-
-        """
-        pyomo_unit1, pint_unit1 = self._get_units_tuple(expr1)
-        pyomo_unit2, pint_unit2 = self._get_units_tuple(expr2)
-        return _UnitExtractionVisitor(self)._pint_units_equivalent(pint_unit1, pint_unit2)
 
     def get_units(self, expr):
         """
@@ -1163,6 +1179,11 @@ class PyomoUnitsContainer(object):
         -------
         : Pyomo unit (expression)
            Returns the units corresponding to the expression
+
+        Raises
+        ------
+        :py:class:`pyomo.core.base.units_container.UnitsError`, :py:class:`pyomo.core.base.units_container.InconsistentUnitsError`
+
         """
         pyomo_unit, pint_unit = self._get_units_tuple(expr=expr)
 
@@ -1190,6 +1211,11 @@ class PyomoUnitsContainer(object):
         -------
         : bool
            True if units are consistent, and False if not
+
+        Raises
+        ------
+        :py:class:`pyomo.core.base.units_container.UnitsError`, :py:class:`pyomo.core.base.units_container.InconsistentUnitsError`
+
         """
         if allow_exceptions is True:
             pyomo_unit, pint_unit = self._get_units_tuple(expr=expr)
@@ -1203,6 +1229,31 @@ class PyomoUnitsContainer(object):
             return False
 
         return True
+
+    def check_units_equivalent(self, expr1, expr2):
+        """
+        Check if the units associated with each of the expressions are equivalent.
+
+        Parameters
+        ----------
+        expr1 : Pyomo expression
+           The first expression.
+        expr2 : Pyomo expression
+           The second expression.
+
+        Returns
+        -------
+        : bool
+           True if the expressions have equivalent units, False otherwise.
+
+        Raises
+        ------
+        :py:class:`pyomo.core.base.units_container.UnitsError`, :py:class:`pyomo.core.base.units_container.InconsistentUnitsError`
+
+        """
+        pyomo_unit1, pint_unit1 = self._get_units_tuple(expr1)
+        pyomo_unit2, pint_unit2 = self._get_units_tuple(expr2)
+        return _UnitExtractionVisitor(self)._pint_units_equivalent(pint_unit1, pint_unit2)
 
     # def convert_value(self, src_value, from_units=None, to_units=None):
     #     """
@@ -1229,6 +1280,8 @@ class PyomoUnitsContainer(object):
     #     dest_quantity = src_quantity.to(pint_dest_unit)
     #     return dest_quantity.magnitude
 
-units_container = PyomoUnitsContainer()
+#: Module level instance of a PyomoUnitsContainer to use for all units within a Pyomo model
+# See module level documentation for an example.
+units = PyomoUnitsContainer()
 
 

@@ -15,34 +15,17 @@ from pyomo.environ import *
 from pyomo.core.base.template_expr import IndexTemplate
 from pyomo.core.expr import inequality
 import pyomo.core.expr.current as expr
-from pyomo.core.base.units import PyomoUnitsContainer, InconsistentUnitsError, \
-    UnitsError, _PyomoUnit
+from pyomo.core.base.units_container import InconsistentUnitsError, UnitsError
 from six import StringIO
-
 
 def python_callback_function(arg1, arg2):
     return 42.0
 
 class TestPyomoUnit(unittest.TestCase):
 
-    def test_pint_expression_PyomoUnits(self):
-        m = ConcreteModel()
-        uc = PyomoUnitsContainer()
-        pint_kg = uc._pint_ureg.kg
-        pint_m = uc._pint_ureg.m
-
-        pu = _PyomoUnit(pint_kg/pint_m, uc._pint_ureg)
-        pu2 = _PyomoUnit(pint_kg/pint_m, uc._pint_ureg)
-
-        with self.assertRaises(InconsistentUnitsError):
-            uc.check_units_consistency(1.0*pu+3.5/pu2)
-
-        self.assertTrue(uc.check_units_consistency(1.0*pu+3.5*pu2))
-
-
     def test_PyomoUnit_NumericValueMethods(self):
         m = ConcreteModel()
-        uc = PyomoUnitsContainer()
+        uc = units
         kg = uc.kg
 
         self.assertEqual(kg.getname(), 'kg')
@@ -186,7 +169,7 @@ class TestPyomoUnit(unittest.TestCase):
         # therefore, if the expression system changes and we get a different expression type,
         # we will know we need to change these tests
 
-        uc = PyomoUnitsContainer()
+        uc = units
         kg = uc.kg
         m = uc.m
 
@@ -387,7 +370,7 @@ class TestPyomoUnit(unittest.TestCase):
 
     # @unittest.skip('Skipped testing LinearExpression since StreamBasedExpressionVisitor does not handle LinearExpressions')
     def test_linear_expression(self):
-        uc = PyomoUnitsContainer()
+        uc = units
         model = ConcreteModel()
         kg = uc.kg
         m = uc.m
@@ -404,13 +387,13 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_fail(linex2, uc, expr.LinearExpression)
 
     def test_dimensionless(self):
-        uc = PyomoUnitsContainer()
+        uc = units
         kg = uc.kg
         dless = uc.dimensionless
         self._get_check_units_ok(2.0 == 2.0*dless, uc, None, expr.EqualityExpression)
 
     def test_temperatures(self):
-        uc = PyomoUnitsContainer()
+        uc = units
 
         # Pyomo units framework disallows "offset" units
         with self.assertRaises(UnitsError):
@@ -440,31 +423,11 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_fail(2.0*delta_degC + 3.0*delta_degF, uc, expr.NPV_SumExpression)
 
     def test_module_example(self):
-        from pyomo.core.base.units import units_container as uc
+        from pyomo.environ import ConcreteModel, Var, Objective, units # import components and 'units' instance
         model = ConcreteModel()
         model.acc = Var()
-        model.obj = Objective(expr=(model.acc*uc.m/uc.s**2 - 9.81*uc.m/uc.s**2)**2)
-        # print(uc.get_units(model.obj.expr))
-        self.assertEqual('m ** 2 / s ** 4', str(uc.get_units(model.obj.expr)))
-
-    # def test_unit_creation(self):
-    #     uc = PyomoUnitsContainer()
-    #
-    #     uc.create_new_unit('football_field', 'yards', 100.0)
-    #
-    #     ff = uc.football_field
-    #     yds = uc.yards
-    #     self.assertTrue(uc.check_units_consistency(3.0*ff - 2.0*ff))
-    #     # we do NOT support implicit conversion
-    #     self.assertFalse(uc.check_units_consistency(3.0*ff - 2.0*yds, allow_exceptions=False))
-    #
-    #     valid_expr = 3.0*ff * 100.0 * yds/ff == 300.0 * yds
-    #     self.assertTrue(uc.check_units_consistency(valid_expr, uc))
-    #
-    #     # ToDo: test convert functionality once complete
-    #
-    # def test_dimension_creation(self):
-    #     pass
+        model.obj = Objective(expr=(model.acc*units.m/units.s**2 - 9.81*units.m/units.s**2)**2)
+        self.assertEqual('m ** 2 / s ** 4', str(units.get_units(model.obj.expr)))
 
 
 if __name__ == "__main__":

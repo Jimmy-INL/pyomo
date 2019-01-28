@@ -6,5 +6,5 @@ Advanced Topics
 
    persistent_solvers.rst
    pysp_rapper/index.rst
-   units.rst
+   units_container.rst
 
