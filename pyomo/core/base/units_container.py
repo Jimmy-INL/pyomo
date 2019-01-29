@@ -49,13 +49,11 @@ Notes:
       before getting to the code that checks the units.
 
 ToDos:
-    * cleanup terminology with unitless / dimensionless
-    * cleanup terminology with unitless / dimensionless
+    * implement convert functionality
     * create a new pint unit definition file (and load from that file)
-      since the precision in pint is insufficient for 1e-8 constraint tolerances
+      since the precision in pint seems insufficient for 1e-8 constraint tolerances
     * Add discussion of absolute temperature vs delta temperature
     * implement and test pickling and un-pickling
-    * implement convert functionality
     * implement ignore_unit(x, expected_unit) that returns a dimensionless version of the expression
       (Note that this may need to be a special expression object that may appear in the tree)
     * Add units capabilities to Var and Param
