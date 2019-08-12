@@ -32,7 +32,7 @@ class TestPyomoUnit(unittest.TestCase):
 
     def test_PyomoUnit_NumericValueMethods(self):
         m = ConcreteModel()
-        uc = units
+        uc = units()
         kg = uc.kg
 
         self.assertEqual(kg.getname(), 'kg')
@@ -176,7 +176,7 @@ class TestPyomoUnit(unittest.TestCase):
         # therefore, if the expression system changes and we get a different expression type,
         # we will know we need to change these tests
 
-        uc = units
+        uc = units()
         kg = uc.kg
         m = uc.m
 
@@ -377,7 +377,7 @@ class TestPyomoUnit(unittest.TestCase):
 
     # @unittest.skip('Skipped testing LinearExpression since StreamBasedExpressionVisitor does not handle LinearExpressions')
     def test_linear_expression(self):
-        uc = units
+        uc = units()
         model = ConcreteModel()
         kg = uc.kg
         m = uc.m
@@ -394,7 +394,7 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_fail(linex2, uc, expr.LinearExpression)
 
     def test_dimensionless(self):
-        uc = units
+        uc = units()
         kg = uc.kg
         dless = uc.dimensionless
         self._get_check_units_ok(2.0 == 2.0*dless, uc, None, expr.EqualityExpression)
@@ -403,7 +403,7 @@ class TestPyomoUnit(unittest.TestCase):
         self.assertEqual(None, uc.get_units(kg/kg))
 
     def test_temperatures(self):
-        uc = units
+        uc = units()
 
         # Pyomo units framework disallows "offset" units
         with self.assertRaises(UnitsError):
@@ -433,11 +433,11 @@ class TestPyomoUnit(unittest.TestCase):
         self._get_check_units_fail(2.0*delta_degC + 3.0*delta_degF, uc, expr.NPV_SumExpression)
 
     def test_module_example(self):
-        from pyomo.environ import ConcreteModel, Var, Objective, units # import components and 'units' instance
+        from pyomo.environ import ConcreteModel, Var, Objective, units # import components and units function
         model = ConcreteModel()
         model.acc = Var()
-        model.obj = Objective(expr=(model.acc*units.m/units.s**2 - 9.81*units.m/units.s**2)**2)
-        self.assertEqual('m ** 2 / s ** 4', str(units.get_units(model.obj.expr)))
+        model.obj = Objective(expr=(model.acc*units().m/units().s**2 - 9.81*units().m/units().s**2)**2)
+        self.assertEqual('m ** 2 / s ** 4', str(units().get_units(model.obj.expr)))
 
 
 if __name__ == "__main__":
