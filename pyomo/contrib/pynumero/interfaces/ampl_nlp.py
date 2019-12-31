@@ -30,8 +30,7 @@ import six
 import shutil
 from pyomo.contrib.pynumero.interfaces.nlp import NLP
 
-__all__ = ['AmplNLP']
-
+__all__ = ['AslNLP', 'AmplNLP']
 
 # ToDo: need to add support for modifying bounds.
 # modification of bounds requires rebuiding the maps.
@@ -438,12 +437,12 @@ class AslNLP(NLP):
             self._ineq_is_cached = True
     
     # overloaded from NLP
-    def evaluate_constraints_eq(self, out=None):
+    def evaluate_eq_constraints(self, out=None):
         self._evaluate_constraints_and_cache_if_necessary()
 
         if out is not None:
             if not isinstance(out, np.ndarray) or out.size != self._n_eq:
-                raise RuntimeError('Called evaluate_constraints_eq with an invalid'
+                raise RuntimeError('Called evaluate_eq_constraints with an invalid'
                                    ' "out" argument - should take an ndarray of '
                                    'size {}'.format(self._n_eq))
             np.copyto(out, self._cached_eq)
@@ -451,12 +450,12 @@ class AslNLP(NLP):
             return self._cached_eq.copy()
 
     # overloaded from NLP
-    def evaluate_constraints_ineq(self, out=None):
+    def evaluate_ineq_constraints(self, out=None):
         self._evaluate_constraints_and_cache_if_necessary()
 
         if out is not None:
             if not isinstance(out, np.ndarray) or out.size != self._n_ineq:
-                raise RuntimeError('Called evaluate_constraints_ineq with an invalid'
+                raise RuntimeError('Called evaluate_ineq_constraints with an invalid'
                                    ' "out" argument - should take an ndarray of '
                                    'size {}'.format(self._n_ineq))
             np.copyto(out, self._cached_ineq)
@@ -575,3 +574,137 @@ class AslNLP(NLP):
         self._asl.finalize_solution(status_code, status_message, primals, duals_g)
 
 
+class AmplNLP(AslNLP):
+    """
+    AMPL nonlinear program interface
+
+
+    Attributes
+    ----------
+    _rowfile: str
+        Filename with names of constraints
+    _colfile: str
+        Filename with names of variables
+    _vidx_to_name: list
+        Map from variable idx to variable name
+    _name_to_vidx: dict
+        Map from variable name to variable idx
+    _gidx_to_name: list
+        Map from constraint idx (in "g") to constraint name
+    _name_to_gidx: dict
+        Map from constraint name to constraint idx (in "g")
+    _obj_name: str
+        Name of the objective function
+
+    Parameters
+    ----------
+    nl_file: str
+        filename of the NL-file containing the model
+    row_filename: str, optional
+        filename of .row file with identity of constraints
+    col_filename: str, optional
+        filename of .col file with identity of variables
+
+    """
+    def __init__(self, nl_file, row_filename=None, col_filename=None):
+        # call parent class to set the nl file name and load the model
+        super(AmplNLP, self).__init__(nl_file)
+
+        self._rowfile = row_filename
+        self._colfile = col_filename
+
+        # create containers with names of variables
+        self._vidx_to_name = None
+        self._name_to_vidx = None
+        if col_filename is not None:
+            self._vidx_to_name = self._build_component_names_list(col_filename)
+            self._name_to_vidx = {self._vidx_to_name[vidx]: vidx for vidx in range(self._n_primals)}
+
+        # create containers with names of constraints and objective
+        self._gidx_to_name = None
+        self._name_to_gidx = None
+        self._obj_name = None
+        if row_filename is not None:
+            all_names = self._build_component_names_list(row_filename)
+            # objective is the last one in the list
+            # TODO: what happens with multiple objectives?
+            self._obj_name = all_names[-1]
+            del all_names[-1]
+            # TODO: remove the "g" mappings?
+            self._gidx_to_name = all_names
+            self._eq_idx_to_name = [all_names[self._eq_g_map[i]] for i in range(self._n_eq)]
+            self._ineq_idx_to_name = [all_names[self._ineq_g_map[i]] for i in range(self._n_ineq)]
+            self._name_to_gidx = {all_names[cidx]: cidx for cidx in range(self._n_g)}
+            self._name_to_eq_idx = {name:idx for idx,name in enumerate(self._eq_idx_to_name)}
+            self._name_to_ineq_idx = {name:idx for idx,name in enumerate(self._ineq_idx_to_name)}
+
+    def variable_names(self):
+        """Returns ordered list with names of primal variables"""
+        return list(self._vidx_to_name)
+
+    def eq_constraint_names(self):
+        """Returns ordered list with names of constraints"""
+        return list(self._eq_idx_to_name)
+
+    def ineq_constraint_names(self):
+        """Returns ordered list with names of constraints"""
+        return list(self._ineq_idx_to_name)
+
+    def variable_idx(self, var_name):
+        """
+        Returns index of variable with given name
+
+        Parameters
+        ----------
+        var_name: str
+            Name of variable
+
+        Returns
+        -------
+        int
+
+        """
+        return self._name_to_vidx[var_name]
+
+    def eq_constraint_idx(self, con_name):
+        """
+        Returns index of the equality constraint with given name
+
+        Parameters
+        ----------
+        con_name: str
+            Name of constraint
+
+        Returns
+        -------
+        int
+
+        """
+        return self._name_to_eq_idx[con_name]
+
+    def ineq_constraint_idx(self, con_name):
+        """
+        Returns index of the inequality constraint with given name
+
+        Parameters
+        ----------
+        con_name: str
+            Name of constraint
+
+        Returns
+        -------
+        int
+
+        """
+        return self._name_to_ineq_idx[con_name]
+
+    @staticmethod
+    def _build_component_names_list(filename):
+        """ Builds an ordered list of strings from a file 
+        containing strings on separate lines (e.g., the row
+        and col files """
+        ordered_names = list()
+        with open(filename, 'r') as f:
+            for line in f:
+                ordered_names.append(line.strip('\n'))
+        return ordered_names

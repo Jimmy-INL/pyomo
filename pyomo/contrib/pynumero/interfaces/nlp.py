@@ -257,7 +257,7 @@ class NLP(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def evaluate_constraints_eq(self, out=None):
+    def evaluate_eq_constraints(self, out=None):
         """Returns the values for the equality constraints evaluated at
         the values given for the primal variales in set_primals
 
@@ -274,7 +274,7 @@ class NLP(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def evaluate_constraints_ineq(self, out=None):
+    def evaluate_ineq_constraints(self, out=None):
         """Returns the values of the inequality constraints evaluated at
         the values given for the primal variables in set_primals
 

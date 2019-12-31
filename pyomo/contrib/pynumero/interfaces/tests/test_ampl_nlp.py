@@ -25,12 +25,12 @@ if not AmplInterface.available():
 
 import pyomo.environ as pyo
 from pyomo.opt.base import WriterFactory
-from pyomo.contrib.pynumero.interfaces.ampl_nlp import AslNLP
+from pyomo.contrib.pynumero.interfaces.ampl_nlp import AslNLP, AmplNLP
 import tempfile
 
 from scipy.sparse import coo_matrix
 
-def create_pyomo_model():
+def create_pyomo_model1():
     m = pyo.ConcreteModel()
     m.dual = pyo.Suffix(direction=pyo.Suffix.IMPORT_EXPORT)
 
@@ -68,15 +68,38 @@ def create_pyomo_model():
     m.obj = pyo.Objective(expr=sum(i*j*m.x[i]*m.x[j] for i in m.S for j in m.S))
     return m
 
+def create_pyomo_model2():
+    m = pyo.ConcreteModel()
+    m.x = pyo.Var([1, 2, 3], domain=pyo.Reals)
+    for i in range(1, 4):
+        m.x[i].value = i
+    m.c1 = pyo.Constraint(expr=m.x[1] ** 2 - m.x[2] - 1 == 0)
+    m.c2 = pyo.Constraint(expr=m.x[1] - m.x[3] - 0.5 == 0)
+    m.d1 = pyo.Constraint(expr=m.x[1] + m.x[2] <= 100.0)
+    m.d2 = pyo.Constraint(expr=m.x[2] + m.x[3] >= -100.0)
+    m.d3 = pyo.Constraint(expr=m.x[2] + m.x[3] + m.x[1] >= -500.0)
+    m.x[2].setlb(0.0)
+    m.x[3].setlb(0.0)
+    m.x[2].setub(100.0)
+    m.obj = pyo.Objective(expr=m.x[2]**2)
+    return m
 
+@unittest.skipIf(os.name in ['nt', 'dos'], "Do not test on windows")
 class TestAslNLP(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        m = create_pyomo_model()
-        fname, symbol_map = WriterFactory('nl')(m, 'ampl_test_model.nl', lambda x:True, {})
+        cls.pm = create_pyomo_model1()
+        temporary_dir = tempfile.mkdtemp()
+        cls.filename = os.path.join(temporary_dir, "Pyomo_TestAslNLP")
+        cls.pm.write(cls.filename+'.nl', io_options={"symbolic_solver_labels": True})
+
+    @classmethod
+    def tearDownClass(cls):
+        # TODO: remove the nl files
+        pass
 
     def test_create(self):
-        anlp = AslNLP('ampl_test_model.nl')
+        anlp = AslNLP(self.filename)
         self.assertEquals(anlp.n_primals(),9)
         self.assertEquals(anlp._n_g, 9)
         self.assertEquals(anlp.n_eq_constraints(),2)
@@ -170,33 +193,33 @@ class TestAslNLP(unittest.TestCase):
         anlp.set_primals(np.ones(9))
 
         # equality constraints
-        con_eq = anlp.evaluate_constraints_eq()
+        con_eq = anlp.evaluate_eq_constraints()
         expected_con_eq = np.asarray([88, 276], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_con_eq, con_eq))
         # test inplace
         con_eq = np.zeros(2)
-        anlp.evaluate_constraints_eq(out=con_eq)
+        anlp.evaluate_eq_constraints(out=con_eq)
         self.assertTrue(np.array_equal(expected_con_eq, con_eq))
         # change the value of the primals
         anlp.set_primals(2.0*np.ones(9))
         con_eq = np.zeros(2)
-        anlp.evaluate_constraints_eq(out=con_eq)
+        anlp.evaluate_eq_constraints(out=con_eq)
         expected_con_eq = np.asarray([2*(88+2)-2, 2*(276-6)+6], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_con_eq, con_eq))
         anlp.set_primals(np.ones(9))
 
         # inequality constraints
-        con_ineq = anlp.evaluate_constraints_ineq()
+        con_ineq = anlp.evaluate_ineq_constraints()
         expected_con_ineq = np.asarray([45, 3*45, 4*45, 5*45, 7*45, 8*45, 9*45], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_con_ineq, con_ineq))
         # test inplace
         con_ineq = np.zeros(7)
-        anlp.evaluate_constraints_ineq(out=con_ineq)
+        anlp.evaluate_ineq_constraints(out=con_ineq)
         self.assertTrue(np.array_equal(expected_con_ineq, con_ineq))
         # change the value of the primals
         anlp.set_primals(2.0*np.ones(9))
         con_ineq = np.zeros(7)
-        anlp.evaluate_constraints_ineq(out=con_ineq)
+        anlp.evaluate_ineq_constraints(out=con_ineq)
         expected_con_ineq = 2.0*expected_con_ineq
         self.assertTrue(np.array_equal(expected_con_ineq, con_ineq))
         anlp.set_primals(np.ones(9))
@@ -254,7 +277,67 @@ class TestAslNLP(unittest.TestCase):
         dense_hess = hess.todense()
         self.assertTrue(np.array_equal(dense_hess, expected_hess))
         
-        
+@unittest.skipIf(os.name in ['nt', 'dos'], "Do not test on windows")
+class TestAmplNLP(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # test problem
+        cls.pm2 = create_pyomo_model2()
+        temporary_dir = tempfile.mkdtemp()
+        cls.filename = os.path.join(temporary_dir, "Pyomo_TestAmplNLP")
+        cls.pm2.write(cls.filename+'.nl', io_options={"symbolic_solver_labels": True})
+        cls.nlp = AmplNLP(cls.filename+'.nl',
+                          row_filename=cls.filename+'.row',
+                          col_filename=cls.filename+'.col')
+
+    @classmethod
+    def tearDownClass(cls):
+        # TODO: remove the nl files
+        pass
+
+    def test_names(self):
+        # Note: order may not be the same as "expected"
+        expected_variable_names = ['x[1]', 'x[2]', 'x[3]']
+        variable_names = self.nlp.variable_names()
+        self.assertEqual(len(expected_variable_names),len(variable_names))
+        for i in range(len(expected_variable_names)):
+            self.assertTrue(expected_variable_names[i] in variable_names)
+
+        # Note: order may not be the same as "expected"
+        expected_eq_constraint_names = ['c1', 'c2']
+        eq_constraint_names = self.nlp.eq_constraint_names()
+        self.assertEqual(len(expected_eq_constraint_names),len(eq_constraint_names))
+        for i in range(len(expected_eq_constraint_names)):
+            self.assertTrue(expected_eq_constraint_names[i] in eq_constraint_names)
+
+        # Note: order may not be the same as "expected"
+        expected_ineq_constraint_names = ['d1', 'd2', 'd3']
+        ineq_constraint_names = self.nlp.ineq_constraint_names()
+        self.assertEqual(len(expected_ineq_constraint_names),len(ineq_constraint_names))
+        for i in range(len(expected_ineq_constraint_names)):
+            self.assertTrue(expected_ineq_constraint_names[i] in ineq_constraint_names)
+
+    def test_idxs(self):
+        # Note: order may not be the same as expected
+        variable_idxs = list()
+        variable_idxs.append(self.nlp.variable_idx('x[1]'))
+        variable_idxs.append(self.nlp.variable_idx('x[2]'))
+        variable_idxs.append(self.nlp.variable_idx('x[3]'))
+        self.assertEquals(sum(variable_idxs), 3)
+
+        # Note: order may not be the same as expected
+        eq_constraint_idxs = list()
+        eq_constraint_idxs.append(self.nlp.eq_constraint_idx('c1'))
+        eq_constraint_idxs.append(self.nlp.eq_constraint_idx('c2'))
+        self.assertEquals(sum(eq_constraint_idxs), 1)
+
+        # Note: order may not be the same as expected
+        ineq_constraint_idxs = list()
+        ineq_constraint_idxs.append(self.nlp.ineq_constraint_idx('d1'))
+        ineq_constraint_idxs.append(self.nlp.ineq_constraint_idx('d2'))
+        ineq_constraint_idxs.append(self.nlp.ineq_constraint_idx('d3'))
+        self.assertEquals(sum(ineq_constraint_idxs), 3)
+
 if __name__ == '__main__':
     TestAslNLP.setUpClass()
     t = TestAslNLP()
