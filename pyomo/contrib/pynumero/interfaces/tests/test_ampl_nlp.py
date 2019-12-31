@@ -85,8 +85,8 @@ class TestAslNLP(unittest.TestCase):
         self.assertEquals(anlp.nnz_jacobian_ineq(), 7*9)
         self.assertEquals(anlp.nnz_hessian_lag(), 9*9)
 
-        expected_primals_lb = np.asarray([-1, -np.inf, -3, -np.inf, -5, -np.inf, -7, -np.inf, -9])
-        expected_primals_ub = np.asarray([1, 2, np.inf, np.inf, 5, 6, np.inf, np.inf, 9])
+        expected_primals_lb = np.asarray([-1, -np.inf, -3, -np.inf, -5, -np.inf, -7, -np.inf, -9], dtype=np.float64)
+        expected_primals_ub = np.asarray([1, 2, np.inf, np.inf, 5, 6, np.inf, np.inf, 9], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_primals_lb, anlp.primals_lb()))
         self.assertTrue(np.array_equal(expected_primals_ub, anlp.primals_ub()))
         
@@ -95,16 +95,16 @@ class TestAslNLP(unittest.TestCase):
         self.assertTrue(np.array_equal(expected_condensed_primals_lb, anlp.primals_lb(condensed=True)))
         self.assertTrue(np.array_equal(expected_condensed_primals_ub, anlp.primals_ub(condensed=True)))
 
-        expected_ineq_lb = np.asarray([-1, -3, -np.inf, -5, -7, -np.inf, -9])
-        expected_ineq_ub = np.asarray([1, np.inf, 4, 5, np.inf, 8, 9])
+        expected_ineq_lb = np.asarray([-1, -3, -np.inf, -5, -7, -np.inf, -9], dtype=np.float64)
+        expected_ineq_ub = np.asarray([1, np.inf, 4, 5, np.inf, 8, 9], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_ineq_lb, anlp.ineq_lb()))
         self.assertTrue(np.array_equal(expected_ineq_ub, anlp.ineq_ub()))
 
         expected_init_primals = np.ones(9)
         self.assertTrue(np.array_equal(expected_init_primals, anlp.init_primals()))
-        expected_init_duals_ineq = np.asarray([1, 3, 4, 5, 7, 8, 9])
+        expected_init_duals_ineq = np.asarray([1, 3, 4, 5, 7, 8, 9], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_init_duals_ineq, anlp.init_duals_ineq()))
-        expected_init_duals_eq = np.asarray([2, 6])
+        expected_init_duals_eq = np.asarray([2, 6], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_init_duals_eq, anlp.init_duals_eq()))
 
         t = anlp.create_new_vector('primals')
@@ -127,19 +127,19 @@ class TestAslNLP(unittest.TestCase):
         self.assertTrue(t.size == 5)
 
         expected_primals = [i+1 for i in range(9)]
-        new_primals = np.asarray(expected_primals)
+        new_primals = np.asarray(expected_primals, dtype=np.float64)
         anlp.set_primals(new_primals)
         self.assertTrue(np.array_equal(expected_primals, anlp._primals))
         anlp.set_primals(np.ones(9))
 
         expected_duals_eq = [i+1 for i in range(2)]
-        new_duals_eq = np.asarray(expected_duals_eq)
+        new_duals_eq = np.asarray(expected_duals_eq, dtype=np.float64)
         anlp.set_duals_eq(new_duals_eq)
         self.assertTrue(np.array_equal(expected_duals_eq, anlp._duals_eq))
         anlp.set_duals_eq(np.ones(2))
 
         expected_duals_ineq = [i+1 for i in range(7)]
-        new_duals_ineq = np.asarray(expected_duals_ineq)
+        new_duals_ineq = np.asarray(expected_duals_ineq, dtype=np.float64)
         anlp.set_duals_ineq(new_duals_ineq)
         self.assertTrue(np.array_equal(expected_duals_ineq, anlp._duals_ineq))
         anlp.set_duals_ineq(np.ones(7))
@@ -154,15 +154,16 @@ class TestAslNLP(unittest.TestCase):
         anlp.set_primals(np.ones(9))
 
         # gradient of the objective
-        expected_gradient = np.asarray([2*sum((i+1)*(j+1) for j in range(9)) for i in range(9)])
+        expected_gradient = np.asarray([2*sum((i+1)*(j+1) for j in range(9)) for i in range(9)], dtype=np.float64)
         grad_obj = anlp.evaluate_grad_objective()
         self.assertTrue(np.array_equal(expected_gradient, grad_obj))
+        # test inplace
         grad_obj = np.ones(9)
         anlp.evaluate_grad_objective(out=grad_obj)
         self.assertTrue(np.array_equal(expected_gradient, grad_obj))
         # change the value of the primals
         anlp.set_primals(2.0*np.ones(9))
-        expected_gradient = np.asarray([2*2*sum((i+1)*(j+1) for j in range(9)) for i in range(9)])
+        expected_gradient = np.asarray([2*2*sum((i+1)*(j+1) for j in range(9)) for i in range(9)], dtype=np.float64)
         grad_obj = np.ones(9)
         anlp.evaluate_grad_objective(out=grad_obj)
         self.assertTrue(np.array_equal(expected_gradient, grad_obj))
@@ -170,8 +171,9 @@ class TestAslNLP(unittest.TestCase):
 
         # equality constraints
         con_eq = anlp.evaluate_constraints_eq()
-        expected_con_eq = np.asarray([88, 276])
+        expected_con_eq = np.asarray([88, 276], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_con_eq, con_eq))
+        # test inplace
         con_eq = np.zeros(2)
         anlp.evaluate_constraints_eq(out=con_eq)
         self.assertTrue(np.array_equal(expected_con_eq, con_eq))
@@ -179,14 +181,15 @@ class TestAslNLP(unittest.TestCase):
         anlp.set_primals(2.0*np.ones(9))
         con_eq = np.zeros(2)
         anlp.evaluate_constraints_eq(out=con_eq)
-        expected_con_eq = np.asarray([2*(88+2)-2, 2*(276-6)+6])
+        expected_con_eq = np.asarray([2*(88+2)-2, 2*(276-6)+6], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_con_eq, con_eq))
         anlp.set_primals(np.ones(9))
 
         # inequality constraints
         con_ineq = anlp.evaluate_constraints_ineq()
-        expected_con_ineq = np.asarray([45, 3*45, 4*45, 5*45, 7*45, 8*45, 9*45])
+        expected_con_ineq = np.asarray([45, 3*45, 4*45, 5*45, 7*45, 8*45, 9*45], dtype=np.float64)
         self.assertTrue(np.array_equal(expected_con_ineq, con_ineq))
+        # test inplace
         con_ineq = np.zeros(7)
         anlp.evaluate_constraints_ineq(out=con_ineq)
         self.assertTrue(np.array_equal(expected_con_ineq, con_ineq))
@@ -197,6 +200,60 @@ class TestAslNLP(unittest.TestCase):
         expected_con_ineq = 2.0*expected_con_ineq
         self.assertTrue(np.array_equal(expected_con_ineq, con_ineq))
         anlp.set_primals(np.ones(9))
+
+        # jacobian of equality constraints
+        jac_eq = anlp.evaluate_jacobian_eq()
+        dense_jac_eq = jac_eq.todense()
+        expected_jac_eq = np.asarray([[2, 4, 6, 8, 10, 12, 14, 16, 18],
+                                      [6, 12, 18, 24, 30, 36, 42, 48, 54]], dtype=np.float64)
+        self.assertTrue(np.array_equal(dense_jac_eq, expected_jac_eq))
+        # test inplace
+        jac_eq.data = 0*jac_eq.data
+        anlp.evaluate_jacobian_eq(out=jac_eq)
+        dense_jac_eq = jac_eq.todense()
+        self.assertTrue(np.array_equal(dense_jac_eq, expected_jac_eq))
+        # change the value of the primals
+        # ToDo: not a great test since this problem is linear
+        anlp.set_primals(2.0*np.ones(9))
+        anlp.evaluate_jacobian_eq(out=jac_eq)
+        dense_jac_eq = jac_eq.todense()
+        self.assertTrue(np.array_equal(dense_jac_eq, expected_jac_eq))
+
+        # jacobian of inequality constraints
+        jac_ineq = anlp.evaluate_jacobian_ineq()
+        dense_jac_ineq = jac_ineq.todense()
+        expected_jac_ineq = [ [(i)*(j) for j in range(1,10)] for i in [1, 3, 4, 5, 7, 8, 9] ]
+        expected_jac_ineq = np.asarray(expected_jac_ineq, dtype=np.float64)
+        self.assertTrue(np.array_equal(dense_jac_ineq, expected_jac_ineq))
+        # test inplace
+        jac_ineq.data = 0*jac_ineq.data
+        anlp.evaluate_jacobian_ineq(out=jac_ineq)
+        dense_jac_ineq = jac_ineq.todense()
+        self.assertTrue(np.array_equal(dense_jac_ineq, expected_jac_ineq))
+        # change the value of the primals
+        # ToDo: not a great test since this problem is linear
+        anlp.set_primals(2.0*np.ones(9))
+        anlp.evaluate_jacobian_ineq(out=jac_ineq)
+        dense_jac_ineq = jac_ineq.todense()
+        self.assertTrue(np.array_equal(dense_jac_ineq, expected_jac_ineq))
+
+        # hessian
+        hess = anlp.evaluate_hessian_lag()
+        dense_hess = hess.todense()
+        expected_hess = [ [2.0*i*j for j in range(1, 10)] for i in range(1,10) ]
+        expected_hess = np.asarray(expected_hess, dtype=np.float64)
+        self.assertTrue(np.array_equal(dense_hess, expected_hess))
+        # test inplace
+        hess.data = np.zeros(len(hess.data))
+        anlp.evaluate_hessian_lag(out=hess)
+        dense_hess = hess.todense()
+        self.assertTrue(np.array_equal(dense_hess, expected_hess))
+        # change the value of the primals
+        anlp.set_primals(2.0*np.ones(9))
+        anlp.evaluate_hessian_lag(out=hess)
+        dense_hess = hess.todense()
+        self.assertTrue(np.array_equal(dense_hess, expected_hess))
+        
         
 if __name__ == '__main__':
     TestAslNLP.setUpClass()

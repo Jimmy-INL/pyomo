@@ -489,7 +489,7 @@ class AslNLP(NLP):
 
     # overloaded from NLP
     def evaluate_jacobian_ineq(self, out=None):
-        self.evaluate_jacobians_and_cache_if_necessary()
+        self._evaluate_jacobians_and_cache_if_necessary()
 
         if out is not None:
             if not isinstance(out, coo_matrix) or out.shape[0] != self._n_ineq or out.shape[1] != self._n_primals:
@@ -501,7 +501,7 @@ class AslNLP(NLP):
             return self._cached_jacobian_ineq.copy()
 
     def evaluate_hessian_lag(self, out=None):
-        if not self._hessian_is_cached:
+        if not self._hessian_lag_is_cached:
             # evaluating the hessian requires that we have first
             # evaluated the objective and the constraints
             self._evaluate_objective_and_cache_if_necessary()
@@ -515,13 +515,14 @@ class AslNLP(NLP):
             self._duals_g[self._g_ineq_mask] = self._duals_ineq
             
             # get the hessian
-            data = np.zeros(self._nns_hess_lag_lower, np.double)
+            data = np.zeros(self._nnz_hess_lag_lower, np.double)
             self._asl.eval_hes_lag(self._primals, self._duals_g,
                                    data, obj_factor=obj_factor)
             values = np.concatenate((data, data[self._lower_hess_mask]))
             #TODO: find out why this is done
             values += 1e-16 # this is to deal with scipy bug temporarily
             self._cached_hessian_lag.data = values
+            self._hessian_lag_is_cached = True
 
         if out is not None:
             if not isinstance(out, coo_matrix) or out.shape[0] != self._n_primals or \
