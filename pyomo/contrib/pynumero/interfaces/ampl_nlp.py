@@ -11,18 +11,14 @@
 This module defines the classes that provide an NLP interface based on
 the Ampl Solver Library (ASL) implementation
 """
-import pyomo
-import pyomo.environ as aml
-
 try:
     import pyomo.contrib.pynumero.extensions.asl as _asl
 except ImportError as e:
     print('{}'.format(e))
-    raise ImportError('Error importing asl while running nlp interface. '
+    raise ImportError('Error importing asl.'
                       'Make sure libpynumero_ASL is installed and added to path.')
 
-from scipy.sparse import coo_matrix, csr_matrix
-import abc
+from scipy.sparse import coo_matrix
 import os
 import numpy as np
 from pyomo.contrib.pynumero.interfaces.nlp import ExtendedNLP
@@ -30,12 +26,11 @@ from pyomo.contrib.pynumero.interfaces.nlp import ExtendedNLP
 __all__ = ['AslNLP', 'AmplNLP']
 
 # ToDo: need to add support for modifying bounds.
-# modification of bounds requires rebuiding the maps.
 # support for variable bounds seems trivial.
-# support for constraint bounds would require more work. (this is not frequent tho)
-# TODO: currently, length of upper and lower bounds are all the same (only maps g to ineq)
-# TODO: currently, this code always cache's evaluation of gradients and objectives. This may
-# result in unnecessary copies
+# support for constraint bounds would require more work. (this is less frequent?)
+# TODO: check performance impacts of cacheing - memory and computational time.
+# TODO: only create and cache data for ExtendedNLP methods if they are ever asked for
+# TODO: There are todos in the code below
 class AslNLP(ExtendedNLP):
     def __init__(self, nl_file):
         """
@@ -95,9 +90,6 @@ class AslNLP(ExtendedNLP):
         """
         Collect characteristics of the NLP from the ASL interface
         """
-        # Note: ASL uses "g" which contains all equalities and inequalities
-        # in a single vector. These will need to mapped to "eq" and "ineq"
-        
         # get the problem dimensions
         self._n_primals = self._asl.get_n_vars()
         self._n_con_full = self._asl.get_n_constraints()
@@ -121,7 +113,7 @@ class AslNLP(ExtendedNLP):
         self._primals_ub.flags.writeable = False
 
         # get the bounds on the constraints (equality and
-        # inequality are mixed for the asl interface)
+        # inequality are mixed in the ampl solver library)
         self._con_full_lb = np.zeros(self._n_con_full, dtype=np.float64)
         self._con_full_ub = np.zeros(self._n_con_full, dtype=np.float64)
         self._asl.get_g_lower_bounds(self._con_full_lb)
@@ -194,13 +186,12 @@ class AslNLP(ExtendedNLP):
         self._nnz_jac_eq = len(self._irows_jac_eq)
         self._nnz_jac_ineq = len(self._irows_jac_ineq)
 
-        # this is expensive but only done once
-        # could be vectorized or done from the c-side
-        full_eq_map = {self._con_eq_full_map[i]: i for i in range(self._n_con_eq)}
+        # this is expensive but only done once - can we do this with numpy somehow?
+        self._con_full_eq_map = full_eq_map = {self._con_eq_full_map[i]: i for i in range(self._n_con_eq)}
         for i, v in enumerate(self._irows_jac_eq):
             self._irows_jac_eq[i] = full_eq_map[v]
 
-        full_ineq_map = {self._con_ineq_full_map[i]: i for i in range(self._n_con_ineq)}
+        self._con_full_ineq_map = full_ineq_map = {self._con_ineq_full_map[i]: i for i in range(self._n_con_ineq)}
         for i, v in enumerate(self._irows_jac_ineq):
             self._irows_jac_ineq[i] = full_ineq_map[v]
 
@@ -255,7 +246,7 @@ class AslNLP(ExtendedNLP):
         self._con_full_ineq_mask.flags.writeable = False
         self._con_ineq_full_map.flags.writeable = False
 
-        # do we need this?
+        # these do not appear to be used anywhere - keeping the logic for now
         """
         #TODO: Can we simplify this logic?
         con_full_fulllb_mask = np.isfinite(self._con_full_lb) * self._con_full_ineq_mask + self._con_full_eq_mask
@@ -565,37 +556,23 @@ class AslNLP(ExtendedNLP):
         self._asl.finalize_solution(status_code, status_message, self._primals, self._duals)
 
 class AmplNLP(AslNLP):
-    """
-    AMPL nonlinear program interface
-
-    Attributes
-    ----------
-    _rowfile: str
-        Filename with names of constraints
-    _colfile: str
-        Filename with names of variables
-    _vidx_to_name: list
-        Map from variable idx to variable name
-    _name_to_vidx: dict
-        Map from variable name to variable idx
-    _gidx_to_name: list
-        Map from constraint idx (in "g") to constraint name
-    _name_to_gidx: dict
-        Map from constraint name to constraint idx (in "g")
-    _obj_name: str
-        Name of the objective function
-
-    Parameters
-    ----------
-    nl_file: str
-        filename of the NL-file containing the model
-    row_filename: str, optional
-        filename of .row file with identity of constraints
-    col_filename: str, optional
-        filename of .col file with identity of variables
-
-    """
     def __init__(self, nl_file, row_filename=None, col_filename=None):
+        """
+        AMPL nonlinear program interface.
+        If row_filename and col_filename are not provided, the interface
+        will see if files exist (with same name as nl_file but the .row 
+        and .col extensions)
+
+        Parameters
+        ----------
+        nl_file: str
+            filename of the NL-file containing the model
+        row_filename: str, optional
+            filename of .row file with identity of constraints
+        col_filename: str, optional
+            filename of .col file with identity of variables
+
+        """
         # call parent class to set the nl file name and load the model
         super(AmplNLP, self).__init__(nl_file)
 
@@ -659,7 +636,7 @@ class AmplNLP(AslNLP):
 
     def variable_idx(self, var_name):
         """
-        Returns index of variable with given name
+        Returns the index of the variable named var_name
 
         Parameters
         ----------
@@ -675,7 +652,7 @@ class AmplNLP(AslNLP):
 
     def constraint_idx(self, con_name):
         """
-        Returns index of the constraint with given name
+        Returns the index of the constraint named con_name
         (corresponding to the order returned by evaluate_constraints)
 
         Parameters
@@ -691,7 +668,7 @@ class AmplNLP(AslNLP):
 
     def eq_constraint_idx(self, con_name):
         """
-        Returns index of the equality constraint with given name
+        Returns the index of the equality constraint named con_name
         (corresponding to the order returned by evaluate_eq_constraints)
 
         Parameters
@@ -708,7 +685,7 @@ class AmplNLP(AslNLP):
 
     def ineq_constraint_idx(self, con_name):
         """
-        Returns index of the inequality constraint with given name
+        Returns the index of the inequality constraint named con_name
         (corresponding to the order returned by evaluate_ineq_constraints)
 
         Parameters

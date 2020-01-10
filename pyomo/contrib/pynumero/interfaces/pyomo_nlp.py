@@ -13,433 +13,208 @@ the Ampl Solver Library (ASL) implementation
 """
 import pyomo
 import pyomo.environ as aml
-from ampl_nlp import AslNLP
+from pyomo.contrib.pynumero.interfaces.ampl_nlp import AslNLP
+import pyutilib
 
-from scipy.sparse import coo_matrix, csr_matrix
-import abc
+from scipy.sparse import coo_matrix
 import numpy as np
-import tempfile
-import os
 import six
-import shutil
 
 __all__ = ['PyomoNLP']
 
+# TODO: There are todos in the code below
 class PyomoNLP(AslNLP):
-    """
-    Pyomo nonlinear program interface
+    def __init__(self, pyomo_model):
+        """
+        Pyomo nonlinear program interface
 
-
-    Attributes
-    ----------
-    _varToIndex: pyomo.core.kernel.ComponentMap
-        Map from variable to variable idx
-    _conToIndex: pyomo.core.kernel.ComponentMap
-        Map from constraint to constraint idx
-
-    Parameters
-    ----------
-    model: pyomo.environ.ConcreteModel
-        Pyomo concrete model
-
-    """
-
-    def __init__(self, model):
-        temp_dir = tempfile.mkdtemp()
+        Parameters
+        ----------
+        pyomo_model: pyomo.environ.ConcreteModel
+            Pyomo concrete model
+        """
+        pyutilib.services.TempfileManager.push()
         try:
-            filename = os.path.join(temp_dir, "pynumero_pyomo")
-            objectives = model.component_map(aml.Objective, active=True)
+            # get the temp file names for the nl file
+            nl_file = pyutilib.services.TempfileManager.create_tempfile(suffix='pynumero.nl')
+
+            # add a dummy objective if one does not exist
+            # TODO: Do we need this?
+            objectives = pyomo_model.component_map(aml.Objective, active=True)
             if len(objectives) == 0:
-                model._dummy_obj = aml.Objective(expr=0.0)
+                pyomo_model._dummy_obj = aml.Objective(expr=0.0)
 
-            model.write(filename+'.nl', 'nl', io_options={"symbolic_solver_labels": True})
+            # write the nl file for the Pyomo model and get the symbolMap
+            fname, symbolMap = pyomo.opt.WriterFactory('nl')(pyomo_model, nl_file, lambda x:True, {})
+            
+            # create component maps from vardata to idx and condata to idx
+            self._vardata_to_idx = vdidx = pyomo.core.kernel.component_map.ComponentMap()
+            self._condata_to_idx = cdidx = pyomo.core.kernel.component_map.ComponentMap()
 
-            fname, symbolMap = pyomo.opt.WriterFactory('nl')(model, filename, lambda x:True, {})
-            varToIndex = pyomo.core.kernel.component_map.ComponentMap()
-            conToIndex = pyomo.core.kernel.component_map.ComponentMap()
+            # TODO: Are these names totally consistent?
             for name, obj in six.iteritems(symbolMap.bySymbol):
                 if name[0] == 'v':
-                    varToIndex[obj()] = int(name[1:])
+                    vdidx[obj()] = int(name[1:])
                 elif name[0] == 'c':
-                    conToIndex[obj()] = int(name[1:])
+                    cdidx[obj()] = int(name[1:])
 
-            self._varToIndex = varToIndex
-            self._conToIndex = conToIndex
-
-            nl_file = filename+".nl"
-
+            # now call the AslNLP with the newly created nl_file
             super(PyomoNLP, self).__init__(nl_file)
 
             # keep pyomo model in cache
-            self._model = model
+            self._pyomo_model = pyomo_model
 
         finally:
-            shutil.rmtree(temp_dir)
+            # delete the nl file
+            pyutilib.services.TempfileManager.pop()
 
     @property
-    def model(self):
+    def pyomo_model(self):
         """
         Return optimization model
         """
-        return self._model
+        return self._pyomo_model
 
-    def grad_objective(self, x, out=None, **kwargs):
-        """Returns gradient of the objective function evaluated at x
+    def get_pyomo_variables(self):
+        """
+        Return an ordered list of the Pyomo VarData objects in
+        the order corresponding to the primals
+        """
+        # ToDo: is there a more efficient way to do this
+        idx_to_vardata = {i:v for v,i in six.iteritems(self._vardata_to_idx)}
+        return [idx_to_vardata[i] for i in range(len(idx_to_vardata))]
+
+    def get_pyomo_constraints(self):
+        """
+        Return an ordered list of the Pyomo ConData objects in
+        the order corresponding to the primals
+        """
+        # ToDo: is there a more efficient way to do this
+        idx_to_condata = {i:v for v,i in six.iteritems(self._condata_to_idx)}
+        return [idx_to_condata[i] for i in range(len(idx_to_condata))]
+
+    def get_primal_indices(self, pyomo_variables):
+        """
+        Return the list of indices for the primals
+        corresponding to the list of Pyomo variables provided
 
         Parameters
         ----------
-        x: numpy.ndarray
-            Array with values of primal variables.
-        out: numpy.ndarray, optional
-            Output array. Its type is preserved and it
-            must be of the right shape to hold the output.
-
-        Other Parameters
-        ----------------
-        subset_variables: list, optional
-            List of pyomo variables to include in gradient (default None).
-            Default includes all variables
-
-        Returns
-        -------
-        numpy.ndarray
-
+        pyomo_variables : list of Pyomo Var or VarData objects
         """
-        subset_variables = kwargs.pop('subset_variables', None)
-
-        if subset_variables is None:
-            return super(PyomoNLP, self).grad_objective(x,
-                                                        out=out,
-                                                        **kwargs)
-
-        if out is not None:
-            msg = 'out not supported with subset of variables'
-            raise RuntimeError(msg)
-        df = super(PyomoNLP, self).grad_objective(x, out=out, **kwargs)
-
+        assert isinstance(pyomo_variables, list)
         var_indices = []
-        for v in subset_variables:
+        for v in pyomo_variables:
             if v.is_indexed():
                 for vd in v.values():
-                    var_id = self._varToIndex[vd]
+                    var_id = self._vardata_to_idx[vd]
                     var_indices.append(var_id)
             else:
-                var_id = self._varToIndex[v]
+                var_id = self._vardata_to_idx[v]
                 var_indices.append(var_id)
-        return df[var_indices]
+        return var_indices
 
-    def evaluate_g(self, x, out=None, **kwargs):
-        """Return general inequality constraints evaluated at x
+    def get_constraint_indices(self, pyomo_constraints):
+        """
+        Return the list of indices for the constraints
+        corresponding to the list of Pyomo constraints provided
 
         Parameters
         ----------
-        x: numpy.ndarray
-            Array with values of primal variables.
-        out: numpy.ndarray, optional
-            Output array. Its type is preserved and it
-            must be of the right shape to hold the output.
-
-        Other Parameters
-        ----------------
-        subset_constraints: list, optional
-            List of pyomo constraints to include in evaluated vector (default None).
-            Default includes all constraints
-
-        Returns
-        -------
-        numpy.ndarray
-
+        pyomo_constraints : list of Pyomo Constraint or ConstraintData objects
         """
-        subset_constraints = kwargs.pop('subset_constraints', None)
-
-        if subset_constraints is None:
-            return super(PyomoNLP, self).evaluate_g(x,
-                                                    out=out,
-                                                    **kwargs)
-
-        if out is not None:
-            msg = 'out not supported with subset of constraints'
-            raise RuntimeError(msg)
-
-        res = super(PyomoNLP, self).evaluate_g(x,
-                                               out=out,
-                                               **kwargs)
+        assert isinstance(pyomo_constraints, list)
         con_indices = []
-        for c in subset_constraints:
+        for c in pyomo_constraints:
             if c.is_indexed():
                 for cd in c.values():
-                    con_id = self._conToIndex[cd]
+                    con_id = self._condata_to_idx[cd]
                     con_indices.append(con_id)
             else:
-                con_id = self._conToIndex[c]
+                con_id = self._condata_to_idx[c]
                 con_indices.append(con_id)
-        return res[con_indices]
+        return con_indices
 
-    def jacobian_g(self, x, out=None, **kwargs):
-        """Returns the Jacobian of the general inequalities evaluated at x
-
-        Parameters
-        ----------
-        x: numpy.ndarray
-            Array with values of primal variables.
-        out: scipy.sparse.coo_matrix, optional
-            Output matrix with the structure of the jacobian already defined.
-
-        Other Parameters
-        ----------------
-        subset_variables: list, optional
-            List of pyomo variables to include in evaluated jacobian (default None).
-            Default includes all variables
-        subset_constraints: list, optional
-            List of pyomo constraints to include in evaluated jacobian (default None).
-            Default includes all constraints
-
-        Returns
-        -------
-        scipy.sparse.coo_matrix
-
-        """
-        subset_variables = kwargs.pop('subset_variables', None)
-        subset_constraints = kwargs.pop('subset_constraints', None)
-
-        if subset_variables is None and subset_constraints is None:
-            return super(PyomoNLP, self).jacobian_g(x,
-                                                    out=out,
-                                                    **kwargs)
-
-        if out is not None:
-            msg = 'out not supported with subset of ' \
-                  'variables or constraints'
-            raise RuntimeError(msg)
-
-        subset_vars = False
-        if subset_variables is not None:
-            var_indices = []
-            for v in subset_variables:
-                if v.is_indexed():
-                    for vd in v.values():
-                        var_id = self._varToIndex[vd]
-                        var_indices.append(var_id)
-                else:
-                    var_id = self._varToIndex[v]
-                    var_indices.append(var_id)
-            indices_vars = var_indices
-            subset_vars = True
-
-        subset_constr = False
-        if subset_constraints is not None:
-            con_indices = []
-            for c in subset_constraints:
-                if c.is_indexed():
-                    for cd in c.values():
-                        con_id = self._conToIndex[cd]
-                        con_indices.append(con_id)
-                else:
-                    con_id = self._conToIndex[c]
-                    con_indices.append(con_id)
-            indices_constraints = con_indices
-            subset_constr = True
-
-        if subset_vars:
-            jcols_bool = np.isin(self._jcols_jac_g, indices_vars)
-            ncols = len(indices_vars)
-        else:
-            jcols_bool = np.ones(self.nnz_jacobian_g, dtype=bool)
-            ncols = self.nx
-
-        if subset_constr:
-            irows_bool = np.isin(self._irows_jac_g, indices_constraints)
-            nrows = len(indices_constraints)
-        else:
-            irows_bool = np.ones(self.nnz_jacobian_g, dtype=bool)
-            nrows = self.ng
-
-        vals_bool = irows_bool * jcols_bool
-        vals_indices = np.where(vals_bool)
-
-        jac = super(PyomoNLP, self).jacobian_g(x, out=out, **kwargs)
-        data = jac.data[vals_indices]
-
-        # map indices to new indices
-        new_col_indices = self._jcols_jac_g[vals_indices]
-        if subset_vars:
-            old_col_indices = self._jcols_jac_g[vals_indices]
-            vid_to_nvid = {vid: idx for idx, vid in enumerate(indices_vars)}
-            new_col_indices = np.array([vid_to_nvid[vid] for vid in old_col_indices])
-
-        new_row_indices = self._irows_jac_g[vals_indices]
-        if subset_constraints:
-            old_const_indices = self._irows_jac_g[vals_indices]
-            cid_to_ncid = {cid: idx for idx, cid in enumerate(indices_constraints)}
-            new_row_indices = np.array([cid_to_ncid[cid] for cid in old_const_indices])
-
-        return coo_matrix((data, (new_row_indices, new_col_indices)),
-                         shape=(nrows, ncols))
-
-    def hessian_lag(self, x, y, out=None, **kwargs):
-        """Return the Hessian of the Lagrangian function evaluated at x and y
+    def extract_subvector_grad_objective(self, pyomo_variables):
+        """Compute the gradient of the objective and return the entries
+        corresponding to the given Pyomo variables
 
         Parameters
         ----------
-        x: numpy.ndarray
-            Array with values of primal variables.
-        y: numpy.ndarray
-            Array with values of dual variables.
-        out: scipy.sparse.coo_matrix, optional
-            Output matrix with the structure of the hessian already defined.
-
-        Other Parameters
-        ----------------
-        eval_f_c: bool, optional
-            True if objective and contraints need to be reevaluated (default True).
-        obj_factor: float64, optional
-            Factor used to scale objective function (default 1.0)
-        subset_variables_row: list, optional
-            List of pyomo variables to include in rows of evaluated hessian (default None).
-            Default includes all variables
-        subset_variables: list, optional
-            List of pyomo variables to include in columns of evaluated hessian (default None).
-            Default includes all variables
-
-        Returns
-        -------
-        scipy.sparse.coo_matrix
-
+        pyomo_variables : list of Pyomo Var or VarData objects
         """
-        subset_variables_row = kwargs.pop('subset_variables_row', None)
-        subset_variables_col = kwargs.pop('subset_variables_col', None)
+        grad_obj = self.evaluate_grad_objective()
+        return grad_obj[self.get_primal_indices(pyomo_variables)]
 
-        if subset_variables_row is None and subset_variables_col is None:
-            return super(PyomoNLP, self).hessian_lag(x,
-                                                     y,
-                                                     out=out,
-                                                     **kwargs)
+    def extract_subvector_constraints(self, pyomo_constraints):
+        """
+        Return the values of the constraints
+        corresponding to the list of Pyomo constraints provided
 
-        if out is not None:
-            msg = 'out not supported with subset of variables'
-            raise RuntimeError(msg)
+        Parameters
+        ----------
+        pyomo_constraints : list of Pyomo Constraint or ConstraintData objects
+        """
+        residuals = self.evaluate_constraints()
+        return residuals[self.get_constraint_indices(pyomo_constraints)]
 
-        subset_cols = False
-        if subset_variables_col is not None:
-            var_indices_cols = []
-            for v in subset_variables_col:
-                if v.is_indexed():
-                    for vd in v.values():
-                        var_id = self._varToIndex[vd]
-                        var_indices_cols.append(var_id)
-                else:
-                    var_id = self._varToIndex[v]
-                    var_indices_cols.append(var_id)
+    def extract_submatrix_jacobian(self, pyomo_variables, pyomo_constraints):
+        """
+        Return the submatrix of the jacobian that corresponds to the list
+        of Pyomo variables and list of Pyomo constraints provided
 
-            indices_cols = var_indices_cols
-            subset_cols = True
+        Parameters
+        ----------
+        pyomo_variables : list of Pyomo Var or VarData objects
+        pyomo_constraints : list of Pyomo Constraint or ConstraintData objects
+        """
+        jac = self.evaluate_jacobian()
+        primal_indices = self.get_primal_indices(pyomo_variables)
+        constraint_indices = self.get_constraint_indices(pyomo_constraints)
+        row_mask = np.isin(jac.row, constraint_indices)
+        col_mask = np.isin(jac.col, primal_indices)
+        submatrix_mask = row_mask & col_mask
+        submatrix_irows = np.compress(submatrix_mask, jac.row)
+        submatrix_jcols = np.compress(submatrix_mask, jac.col)
+        submatrix_data = np.compress(submatrix_mask, jac.data)
 
-        subset_rows = False
-        if subset_variables_row is not None:
-            var_indices_rows = []
-            for v in subset_variables_row:
-                if v.is_indexed():
-                    for vd in v.values():
-                        var_id = self._varToIndex[vd]
-                        var_indices_rows.append(var_id)
-                else:
-                    var_id = self._varToIndex[v]
-                    var_indices_rows.append(var_id)
-            indices_rows = var_indices_rows
-            subset_rows = True
+        # ToDo: this is expensive - have to think about how to do this with numpy
+        row_submatrix_map = {j:i for i,j in enumerate(constraint_indices)}
+        for i, v in enumerate(submatrix_irows):
+            submatrix_irows[i] = row_submatrix_map[v]
 
-        if subset_cols:
-            jcols_bool = np.isin(self._jcols_hess, indices_cols)
-            ncols = len(indices_cols)
-        else:
-            jcols_bool = np.ones(self.nnz_hessian_lag, dtype=bool)
-            ncols = self.nx
+        col_submatrix_map = {j:i for i,j in enumerate(primal_indices)}
+        for i, v in enumerate(submatrix_jcols):
+            submatrix_jcols[i] = col_submatrix_map[v]
 
-        if subset_rows:
-            irows_bool = np.isin(self._irows_hess, indices_rows)
-            nrows = len(indices_rows)
-        else:
-            irows_bool = np.ones(self.nnz_hessian_lag, dtype=bool)
-            nrows = self.nx
+        return coo_matrix((submatrix_data, (submatrix_irows, submatrix_jcols)), shape=(len(constraint_indices), len(primal_indices)))
 
-        vals_bool = irows_bool * jcols_bool
-        vals_indices = np.where(vals_bool)
+    def extract_submatrix_hessian_lag(self, pyomo_variables):
+        """
+        Return the submatrix of the hessian of the lagrangian that 
+        corresponds to the list of Pyomo variables provided
 
-        hess = super(PyomoNLP, self).hessian_lag(x, y, out=out, **kwargs)
-        data = hess.data[vals_indices]
+        Parameters
+        ----------
+        pyomo_variables : list of Pyomo Var or VarData objects
+        """
+        hess_lag = self.evaluate_hessian_lag()
+        primal_indices = self.get_primal_indices(pyomo_variables)
+        row_mask = np.isin(hess_lag.row, primal_indices)
+        col_mask = np.isin(hess_lag.col, primal_indices)
+        submatrix_mask = row_mask & col_mask
+        submatrix_irows = np.compress(submatrix_mask, hess_lag.row)
+        submatrix_jcols = np.compress(submatrix_mask, hess_lag.col)
+        submatrix_data = np.compress(submatrix_mask, hess_lag.data)
 
-        # map indices to new indices
-        new_col_indices = self._jcols_hess[vals_indices]
-        if subset_cols:
-            old_col_indices = self._jcols_hess[vals_indices]
-            vid_to_nvid = {vid: idx for idx, vid in enumerate(indices_cols)}
-            new_col_indices = np.array([vid_to_nvid[vid] for vid in old_col_indices])
+        # ToDo: this is expensive - have to think about how to do this with numpy
+        submatrix_map = {j:i for i,j in enumerate(primal_indices)}
+        for i, v in enumerate(submatrix_irows):
+            submatrix_irows[i] = submatrix_map[v]
 
-        new_row_indices = self._irows_hess[vals_indices]
-        if subset_rows:
-            old_row_indices = self._irows_hess[vals_indices]
-            cid_to_ncid = {cid: idx for idx, cid in enumerate(indices_rows)}
-            new_row_indices = np.array([cid_to_ncid[cid] for cid in old_row_indices])
+        for i, v in enumerate(submatrix_jcols):
+            submatrix_jcols[i] = submatrix_map[v]
 
-        return coo_matrix((data, (new_row_indices, new_col_indices)),
-                         shape=(nrows, ncols))
-
-    def variable_order(self):
-        """Returns ordered list with names of primal variables"""
-        #return {idx: v.name for v,idx in self._varToIndex.items()}
-        var_order = [None] * self.nx
-        for v, idx in self._varToIndex.items():
-            var_order[idx] = v.name
-        return var_order
-
-    def variables(self):
-        """Returns a dictionary of the primal variables indexed by their order"""
-        return {idx:v for v,idx in self._varToIndex.items()}
+        return coo_matrix((submatrix_data, (submatrix_irows, submatrix_jcols)), shape=(len(primal_indices), len(primal_indices)))
     
-    def constraint_order(self):
-        """Returns ordered list with names of constraints"""
-        con_order = [None] * self.ng
-        for c, idx in self._conToIndex.items():
-            con_order[idx] = c.name
-        return con_order
-
-    def constraints(self):
-        """Returns a dictionary of the constraints indexed by their order"""
-        return {idx:c for c,idx in self._conToIndex.items()}
-        
-    def variable_idx(self, var):
-        """
-        Returns index of variable in nlp.x
-
-        Parameters
-        ----------
-        var: pyomo.Var
-            Pyomo variable
-
-        Returns
-        -------
-        int
-
-        """
-        if var.is_indexed():
-            raise RuntimeError("Var must of type VarData (not indexed)")
-        return self._varToIndex[var]
-
-    def constraint_idx(self, constraint):
-        """
-        Returns index of constraint in nlp.g
-
-        Parameters
-        ----------
-        con_name: pyomo.Constraint
-            Pyomo Constraint
-
-        Returns
-        -------
-        int
-
-        """
-        if constraint.is_indexed():
-            raise RuntimeError("Constraint must be of type ConstraintData (not indexed)")
-        return self._conToIndex[constraint]
 

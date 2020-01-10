@@ -7,13 +7,12 @@
 #  rights in this software.
 #  This software is distributed under the 3-clause BSD License.
 #  ___________________________________________________________________________
-"""
-The pyomo.contrib.pynumero.interfaces.nlp module includes classes that
-represent nonlinear programming problems. There are two interfaces defined
-in this module.
+"""The pyomo.contrib.pynumero.interfaces.nlp module includes abstract
+classes to represent nonlinear programming problems. There are two
+classes that provide different representations for the NLP.
 
-The first interface (NLP) presents the NLP in the following form (where all
-equality and inequality constaints are combined)
+The first interface (NLP) presents the NLP in the following form
+(where all equality and inequality constaints are combined)
 
 minimize             f(x)
 subject to    g_L <= g(x) <= g_U
@@ -22,13 +21,12 @@ subject to    g_L <= g(x) <= g_U
 where x \in R^{n_x} are the primal variables,
       x_L \in R^{n_x} are the lower bounds of the primal variables,
       x_U \in R^{n_x} are the uppper bounds of the primal variables,
-      g: R^{n_x} \rightarrow R^{n_c} are the equality and inequality constraints
+      g: R^{n_x} \rightarrow R^{n_c} are constraints (combined 
+         equality and inequality)
       
-
-The second interface (ExtendedNLP) extends the definition above and presents
-the NLP in the following form where the equality and inequality constraints
-are separated. This interface supports both the combined (c) and split (g and h)
-forms of the NLP.
+The second interface (ExtendedNLP) extends the definition above and
+presents the NLP in the following form where the equality and
+inequality constraints are separated.
 
 minimize             f(x)
 subject to           h(x) = 0
@@ -41,11 +39,16 @@ where x \in R^{n_x} are the primal variables,
       h: R^{n_x} \rightarrow R^{n_eq} are the equality constraints
       q: R^{n_x} \rightarrow R^{n_ineq} are the inequality constraints
 
+Note: In the case of the ExtendedNLP, it is generally assumed that
+both the NLP and the ExtendedNLP interfaces are supported and
+consistent (ExtendedNLP inherits from NLP). For example, a user should
+be able to call set_duals or set_duals_eq and set_duals_ineq, or
+mix-and-match between evaluate_jacobian or evaluate_jacobian_eq and
+evaluate_jacobian_ineq.
+
 .. rubric:: Contents
 
 """
-import pyomo
-import pyomo.environ as aml
 import six
 import abc
 
