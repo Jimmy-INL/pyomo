@@ -723,3 +723,24 @@ following few lines of code in a script:
 
 .. literalinclude:: script_spy_files/spy4scripts_Specify_temporary_directory_name.spy
    :language: python
+
+Working with Numpy data
+-----------------------
+Numpy is a Python package for scientific computing.
+When using Numpy data within a Pyomo model, you must cast the Numpy data to a ``float``
+to prevent type incompatibilities. For example:
+
+
+.. doctest::
+
+   >>> import numpy as np
+   >>> a = np.asarray([3.2,1.7,2.1])
+   >>> import pyomo.environ as pyo
+   >>> model = pyo.ConcreteModel()
+   >>> model.x = pyo.Var([1,2,3], bounds=(0,None))
+   >>> model.obj = pyo.Objective(expr=sum( model.x[i]**2 for i in model.x ))
+   >>> model.con = pyo.Constraint(expr=sum( float(a[i-1])*model.x[i] for i in [1,2,3]) == 1 )
+   >>> model.con.pprint()
+   con : Size=1, Index=None, Active=True
+       Key  : Lower : Body                           : Upper : Active
+       None :   1.0 : 3.2*x[1] + 1.7*x[2] + 2.1*x[3] :   1.0 :   True
