@@ -732,6 +732,7 @@ to prevent type incompatibilities. For example:
 
 
 .. doctest::
+   :skipif:not numpy_available
 
    >>> import numpy as np
    >>> a = np.asarray([3.2,1.7,2.1])

@@ -211,4 +211,9 @@ import pyomo.opt
 ipopt_available = bool(pyomo.opt.check_available_solvers('ipopt'))
 sipopt_available = bool(pyomo.opt.check_available_solvers('ipopt_sens'))
 baron_available = bool(pyomo.opt.check_available_solvers('baron'))
+numpy_available = True
+try:
+   import numpy
+except ImportError:
+   numpy_available = False
 '''
